@@ -566,6 +566,9 @@ public class StatusBarPolicy {
                     action.equals(AudioManager.VIBRATE_SETTING_CHANGED_ACTION)) {
                 updateVolume();
             }
+            else if (action.equals(Intent.ACTION_HEADSET_PLUG)) {
+                updateHeadset(intent);
+            }
             else if (action.equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
                 updateSimState(intent);
             }
@@ -673,6 +676,10 @@ public class StatusBarPolicy {
         mService.setIconVisibility("volume", false);
         updateVolume();
 
+        // headset
+        mService.setIcon("headset", com.android.internal.R.drawable.stat_sys_headset, 0);
+        mService.setIconVisibility("headset", false);
+
         IntentFilter filter = new IntentFilter();
 
         // Register for Intent broadcasts for...
@@ -682,6 +689,7 @@ public class StatusBarPolicy {
         filter.addAction(Intent.ACTION_POWER_CONNECTED);
         filter.addAction(Intent.ACTION_ALARM_CHANGED);
         filter.addAction(Intent.ACTION_SYNC_STATE_CHANGED);
+        filter.addAction(Intent.ACTION_HEADSET_PLUG);
         filter.addAction(AudioManager.RINGER_MODE_CHANGED_ACTION);
         filter.addAction(AudioManager.VIBRATE_SETTING_CHANGED_ACTION);
         filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
@@ -1259,6 +1267,19 @@ public class StatusBarPolicy {
             mService.setIconVisibility("volume", visible);
             mVolumeVisible = visible;
         }
+    }
+
+    private final void updateHeadset(Intent intent) {
+        final boolean isConnected = intent.getIntExtra("state", 0) == 1;
+
+        if (isConnected) {
+            final boolean hasMicrophone = intent.getIntExtra("microphone", 1) == 1;
+            final int iconId = hasMicrophone
+                    ? com.android.internal.R.drawable.stat_sys_headset
+                    : R.drawable.stat_sys_headset_no_mic;
+            mService.setIcon("headset", iconId, 0);
+        }
+        mService.setIconVisibility("headset", isConnected);
     }
 
     private final void updateBluetooth(Intent intent) {
