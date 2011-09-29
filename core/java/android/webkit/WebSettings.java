@@ -427,6 +427,16 @@ public class WebSettings {
         return mNavDump;
     }
 
+    /** @hide */
+    public void showZoomControls(boolean value) {
+        mWebView.showZoomControls(value);
+    }
+
+    /** @hide */
+    public void setTextReflow(boolean value) {
+        mWebView.setTextReflow(value);
+    }
+
     /**
      * Set whether the WebView supports zoom
      */

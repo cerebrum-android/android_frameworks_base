@@ -813,6 +813,10 @@ public class WebView extends AbsoluteLayout
 
     private int mBackgroundColor = Color.WHITE;
 
+    private boolean showZoomControls = true;
+
+    private boolean setTextReflow = true;
+
     // Used to notify listeners of a new picture.
     private PictureListener mPictureListener;
     /**
@@ -984,6 +988,14 @@ public class WebView extends AbsoluteLayout
         updateMultiTouchSupport(context);
     }
 
+    void showZoomControls(boolean value) {
+        showZoomControls = value;
+    }
+
+    void setTextReflow(boolean value) {
+        setTextReflow = value;
+    }
+
     void updateMultiTouchSupport(Context context) {
         WebSettings settings = getSettings();
         final PackageManager pm = context.getPackageManager();
@@ -1001,17 +1013,21 @@ public class WebView extends AbsoluteLayout
 
     private void updateZoomButtonsEnabled() {
         if (mZoomButtonsController == null) return;
-        boolean canZoomIn = mActualScale < mMaxZoomScale;
-        boolean canZoomOut = mActualScale > mMinZoomScale && !mInZoomOverview;
-        if (!canZoomIn && !canZoomOut) {
-            // Hide the zoom in and out buttons, as well as the fit to page
-            // button, if the page cannot zoom
+        if (!showZoomControls) {
             mZoomButtonsController.getZoomControls().setVisibility(View.GONE);
         } else {
-            // Set each one individually, as a page may be able to zoom in
-            // or out.
-            mZoomButtonsController.setZoomInEnabled(canZoomIn);
-            mZoomButtonsController.setZoomOutEnabled(canZoomOut);
+            boolean canZoomIn = mActualScale < mMaxZoomScale;
+            boolean canZoomOut = mActualScale > mMinZoomScale && !mInZoomOverview;
+                if (!canZoomIn && !canZoomOut) {
+                // Hide the zoom in and out buttons, as well as the fit to page
+                // button, if the page cannot zoom
+                mZoomButtonsController.getZoomControls().setVisibility(View.GONE);
+            } else {
+                // Set each one individually, as a page may be able to zoom in
+                // or out.
+                mZoomButtonsController.setZoomInEnabled(canZoomIn);
+                mZoomButtonsController.setZoomOutEnabled(canZoomOut);
+            }
         }
     }
 
@@ -5008,6 +5024,9 @@ public class WebView extends AbsoluteLayout
                 boolean reflowNow = (mActualScale - mMinZoomScale
                         <= MINIMUM_SCALE_INCREMENT)
                         || ((mActualScale <= 0.8 * mTextWrapScale));
+                if (mActualScale > mTextWrapScale) {
+                    reflowNow |= setTextReflow;
+                }
                 // force zoom after mPreviewZoomOnly is set to false so that the
                 // new view size will be passed to the WebKit
                 setNewZoomScale(mActualScale, reflowNow, true);
