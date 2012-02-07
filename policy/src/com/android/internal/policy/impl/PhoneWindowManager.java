@@ -16,7 +16,10 @@
 
 package com.android.internal.policy.impl;
 
+import com.android.internal.R;
+
 import android.app.Activity;
+import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
 import android.app.IUiModeManager;
@@ -39,6 +42,7 @@ import android.os.IBinder;
 import android.os.LocalPowerManager;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
@@ -109,10 +113,12 @@ import android.view.WindowManagerImpl;
 import android.view.WindowManagerPolicy;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.widget.Toast;
 import android.media.IAudioService;
 import android.media.AudioManager;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * WindowManagerPolicy implementation for the Android phone UI.  This
@@ -285,6 +291,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     // Behavior of ENDCALL Button.  (See Settings.System.END_BUTTON_BEHAVIOR.)
     int mEndcallBehavior;
 
+    // Behavior of volbtn music controls
+    boolean mVolBtnMusicControls;
     // keeps track of long press state
     boolean mIsLongPress;
 
@@ -324,6 +332,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     Settings.Secure.DEFAULT_INPUT_METHOD), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     "fancy_rotation_anim"), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.VOLBTN_MUSIC_CONTROLS), false, this);
             updateSettings();
         }
 
@@ -522,6 +532,39 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
     };
 
+    Runnable mBackLongPress = new Runnable() {
+        public void run() {
+            if (Settings.Secure.getInt(mContext.getContentResolver(),
+                    Settings.Secure.KILL_APP_LONGPRESS_BACK, 0) == 0) {
+                // Bail out unless the user has elected to turn this on.
+                return;
+            }
+            try {
+                performHapticFeedbackLw(null, HapticFeedbackConstants.LONG_PRESS, false);
+                IActivityManager mgr = ActivityManagerNative.getDefault();
+                List<RunningAppProcessInfo> apps = mgr.getRunningAppProcesses();
+                for (RunningAppProcessInfo appInfo : apps) {
+                    int uid = appInfo.uid;
+                    // Make sure it's a foreground user application (not system,
+                    // root, phone, etc.)
+                    if (uid >= Process.FIRST_APPLICATION_UID && uid <= Process.LAST_APPLICATION_UID
+                            && appInfo.importance == RunningAppProcessInfo.IMPORTANCE_FOREGROUND) {
+                        // Kill the entire pid
+                        Toast.makeText(mContext, R.string.app_killed_message, Toast.LENGTH_SHORT).show();
+                        if (appInfo.pkgList!=null && (apps.size() > 0)){
+                                mgr.forceStopPackage(appInfo.pkgList[0]);
+                        }else{
+                                Process.killProcess(appInfo.pid);
+                        }
+                        break;
+                    }
+                }
+            } catch (RemoteException remoteException) {
+                // Do nothing; just let it go.
+            }
+        }
+    };
+
     /**
      * When a volumeup-key longpress expires, skip songs based on key press
      */
@@ -655,6 +698,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     Settings.Secure.INCALL_POWER_BUTTON_BEHAVIOR_DEFAULT);
             mFancyRotationAnimation = Settings.System.getInt(resolver,
                     "fancy_rotation_anim", 0) != 0 ? 0x80 : 0;
+            mVolBtnMusicControls = (Settings.System.getInt(resolver,
+                    Settings.System.VOLBTN_MUSIC_CONTROLS, 1) == 1);
             int accelerometerDefault = Settings.System.getInt(resolver,
                     Settings.System.ACCELEROMETER_ROTATION, DEFAULT_ACCELEROMETER_ROTATION);
             if (mAccelerometerDefault != accelerometerDefault) {
@@ -1151,10 +1196,15 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mHandler.removeCallbacks(mHomeLongPress);
         }
 
+        // Clear a pending BACK longpress if the user releases Back.
+        if ((keyCode == KeyEvent.KEYCODE_BACK) && !down) {
+            mHandler.removeCallbacks(mBackLongPress);
+        }
+
         // If the HOME button is currently being held, then we do special
         // chording with it.
         if (mHomePressed) {
-            
+
             // If we have released the home key, and didn't do anything else
             // while it was pressed, then it is time to go home!
             if (keyCode == KeyEvent.KEYCODE_HOME) {
@@ -1221,6 +1271,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 mHomePressed = true;
             }
             return true;
+        } else if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (down && repeatCount == 0) {
+                mHandler.postDelayed(mBackLongPress, ViewConfiguration.getGlobalActionKeyTimeout());
+            }
+            return false;
         } else if (keyCode == KeyEvent.KEYCODE_MENU) {
             // Hijack modified menu keys for debugging features
             final int chordBug = KeyEvent.META_SHIFT_ON;
@@ -1851,7 +1906,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         switch (keyCode) {
             case KeyEvent.KEYCODE_VOLUME_DOWN:
             case KeyEvent.KEYCODE_VOLUME_UP: {
-                if(!down)
+                if(mVolBtnMusicControls && !down)
                 {
                     handleVolumeLongPressAbort();
 
@@ -1895,11 +1950,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     }
 
                     if (isMusicActive() && (result & ACTION_PASS_TO_USER) == 0) {
-                        // initialize long press flag to false for volume events
-                        mIsLongPress = false;
-                        // if the button is held long enough, the following
-                        // procedure will set mIsLongPress=true
-                        handleVolumeLongPress(keyCode);
+                        // Care for long-press actions to skip tracks
+                        if(mVolBtnMusicControls) {
+                            // initialize long press flag to false for volume events
+                            mIsLongPress = false;
+
+                            // if the button is held long enough, the following
+                            // procedure will set mIsLongPress=true
+                            handleVolumeLongPress(keyCode);
+                        } else {
+                            // If music is playing but we decided not to pass the key to the
+                            // application, handle the volume change here.
+                            handleVolumeKey(AudioManager.STREAM_MUSIC, keyCode);
+                        }
                         break;
                     }
                 }
@@ -1937,6 +2000,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             }
 
             case KeyEvent.KEYCODE_POWER: {
+                if ((mTopFullscreenOpaqueWindowState.getAttrs().flags & WindowManager.LayoutParams.PREVENT_POWER_KEY) != 0){
+                    return result;
+                }
                 result &= ~ACTION_PASS_TO_USER;
                 if (down) {
                     ITelephony telephonyService = getTelephonyService();

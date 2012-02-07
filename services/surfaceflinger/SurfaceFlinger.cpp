@@ -82,7 +82,6 @@ SurfaceFlinger::SurfaceFlinger()
         mReadFramebuffer("android.permission.READ_FRAME_BUFFER"),
         mDump("android.permission.DUMP"),
         mVisibleRegionsDirty(false),
-        mDeferReleaseConsole(false),
         mFreezeDisplay(false),
         mElectronBeamAnimationMode(0),
         mFreezeCount(0),
@@ -451,21 +450,17 @@ void SurfaceFlinger::handleConsoleEvents()
         SurfaceFlinger::turnElectronBeamOn(mElectronBeamAnimationMode);
     }
 
-    if (mDeferReleaseConsole && hw.isScreenAcquired()) {
-        // We got the release signal before the acquire signal
-        mDeferReleaseConsole = false;
-        hw.releaseScreen();
-    }
-
     if (what & eConsoleReleased) {
         if (hw.isScreenAcquired()) {
             hw.releaseScreen();
-        } else {
-            mDeferReleaseConsole = true;
         }
     }
 
     mDirtyRegion.set(hw.bounds());
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    mDirtyRegion.set(hw.bounds());
+    signalEvent();
 }
 
 void SurfaceFlinger::handleTransaction(uint32_t transactionFlags)
@@ -1754,6 +1749,12 @@ status_t SurfaceFlinger::electronBeamOffAnimationImplLocked()
     s_curve_interpolator itb(nbFrames, 8.5f);
 
     v_stretch vverts(hw_w, hw_h);
+
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
     for (int i=0 ; i<nbFrames ; i++) {
@@ -1951,7 +1952,7 @@ status_t SurfaceFlinger::electronBeamOnAnimationImplLocked()
     glEnable(GL_SCISSOR_TEST);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDeleteTextures(1, &tname);
-
+    signalEvent();
     return NO_ERROR;
 }
 
@@ -1975,7 +1976,6 @@ status_t SurfaceFlinger::turnElectronBeamOffImplLocked(int32_t mode)
     glEnable(GL_SCISSOR_TEST);
     hw.flip( Region(hw.bounds()) );
 
-    hw.setCanDraw(false);
     return NO_ERROR;
 }
 
@@ -2024,12 +2024,14 @@ status_t SurfaceFlinger::turnElectronBeamOnImplLocked(int32_t mode)
     if (mode & ISurfaceComposer::eElectronBeamAnimationOn) {
         electronBeamOnAnimationImplLocked();
     }
-    hw.setCanDraw(true);
 
     // make sure to redraw the whole screen when the animation is done
     mDirtyRegion.set(hw.bounds());
     signalEvent();
-
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    mDirtyRegion.set(hw.bounds());
+    signalEvent();
     return NO_ERROR;
 }
 
@@ -2054,6 +2056,9 @@ status_t SurfaceFlinger::turnElectronBeamOn(int32_t mode)
     };
 
     postMessageAsync( new MessageTurnElectronBeamOn(this, mode) );
+    signalEvent();
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
     return NO_ERROR;
 }
 
@@ -2113,7 +2118,8 @@ status_t SurfaceFlinger::captureScreenImplLocked(DisplayID dpy,
         // redraw the screen entirely...
         glClearColor(0,0,0,1);
         glClear(GL_COLOR_BUFFER_BIT);
-
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
         const Vector< sp<LayerBase> >& layers(mVisibleLayersSortedByZ);
         const size_t count = layers.size();
         for (size_t i=0 ; i<count ; ++i) {

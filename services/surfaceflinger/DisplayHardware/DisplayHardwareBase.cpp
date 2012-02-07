@@ -374,10 +374,6 @@ DisplayHardwareBase::~DisplayHardwareBase()
     mDisplayEventThread->requestExitAndWait();
 }
 
-void DisplayHardwareBase::setCanDraw(bool canDraw)
-{
-    mCanDraw = canDraw;
-}
 
 bool DisplayHardwareBase::canDraw() const
 {

@@ -47,6 +47,8 @@ public abstract class NetworkStateTracker extends Handler {
     protected int mDefaultGatewayAddr;
     private boolean mTeardownRequested;
 
+    private int mCachedGatewayAddr = 0;
+
     private static boolean DBG = false;
     private static final String TAG = "NetworkStateTracker";
 
@@ -157,13 +159,20 @@ public abstract class NetworkStateTracker extends Handler {
     }
 
     public void addDefaultRoute() {
-        if ((mInterfaceName != null) && (mDefaultGatewayAddr != 0)) {
+        if (mInterfaceName != null) {
             if (DBG) {
                 Log.d(TAG, "addDefaultRoute for " + mNetworkInfo.getTypeName() +
-                        " (" + mInterfaceName + "), GatewayAddr=" + mDefaultGatewayAddr);
+                        " (" + mInterfaceName + "), GatewayAddr=" + mDefaultGatewayAddr +
+			", CachedGatewayAddr=" + mCachedGatewayAddr);
             }
+
+	    if (mDefaultGatewayAddr !=0) {
+		NetworkUtils.setDefaultRoute(mInterfaceName, mDefaultGatewayAddr);
+	    } else if (mCachedGatewayAddr !=0){
+		NetworkUtils.setDefaultRoute(mInterfaceName, mCachedGatewayAddr);
+	    }
             NetworkUtils.addHostRoute(mInterfaceName, mDefaultGatewayAddr);
-            NetworkUtils.setDefaultRoute(mInterfaceName, mDefaultGatewayAddr);
+            mCachedGatewayAddr = 0;
         }
     }
 
@@ -173,6 +182,14 @@ public abstract class NetworkStateTracker extends Handler {
                 Log.d(TAG, "removeDefaultRoute for " + mNetworkInfo.getTypeName() + " (" +
                         mInterfaceName + ")");
             }
+
+	if ((mNetworkInfo.getDetailedState() == NetworkInfo.DetailedState.SUSPENDED) &&
+		(mDefaultGatewayAddr == 0)) {
+	    if (DBG) {
+		Log.d(TAG, "removeDefaultRoute on suspended connection, saving current gateway for when we come out of suspension");
+	    }
+	    mCachedGatewayAddr = NetworkUtils.getDefaultRoute(mInterfaceName);
+	}
             NetworkUtils.removeDefaultRoute(mInterfaceName);
         }
     }

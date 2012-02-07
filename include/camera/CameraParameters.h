@@ -59,9 +59,26 @@ public:
     void setPreviewSize(int width, int height);
     void getPreviewSize(int *width, int *height) const;
     void getSupportedPreviewSizes(Vector<Size> &sizes) const;
+
+    // Set the dimensions in pixels to the given width and height
+    // for video frames. The given width and height must be one
+    // of the supported dimensions returned from
+    // getSupportedVideoSizes(). Must not be called if
+    // getSupportedVideoSizes() returns an empty Vector of Size.
+    void setVideoSize(int width, int height);
+
+    // Retrieve the current dimensions (width and height)
+    // in pixels for video frames, which must be one of the
+    // supported dimensions returned from getSupportedVideoSizes().
+    // Must not be called if getSupportedVideoSizes() returns an
+    // empty Vector of Size.
+    void getVideoSize(int *width, int *height) const;
+
     void setPreviewFrameRate(int fps);
     int getPreviewFrameRate() const;
     void getPreviewFpsRange(int *min_fps, int *max_fps) const;
+    void setPreviewFrameRateMode(const char *mode);
+    const char *getPreviewFrameRateMode() const;
     void setPreviewFormat(const char *format);
     const char *getPreviewFormat() const;
     void setPictureSize(int width, int height);
@@ -69,6 +86,10 @@ public:
     void getSupportedPictureSizes(Vector<Size> &sizes) const;
     void setPictureFormat(const char *format);
     const char *getPictureFormat() const;
+    void setTouchIndexAec(int x, int y);
+    void getTouchIndexAec(int *x, int *y) const;
+    void setTouchIndexAf(int x, int y);
+    void getTouchIndexAf(int *x, int *y) const;
 
     void dump() const;
     status_t dump(int fd, const Vector<String16>& args) const;
@@ -111,6 +132,12 @@ public:
     // Supported number of preview frames per second.
     // Example value: "24,15,10". Read.
     static const char KEY_SUPPORTED_PREVIEW_FRAME_RATES[];
+    // The mode of preview frame rate.
+    // Example value: "frame-rate-auto, frame-rate-fixed".
+    static const char KEY_PREVIEW_FRAME_RATE_MODE[];
+    static const char KEY_SUPPORTED_PREVIEW_FRAME_RATE_MODES[];
+    static const char KEY_PREVIEW_FRAME_RATE_AUTO_MODE[];
+    static const char KEY_PREVIEW_FRAME_RATE_FIXED_MODE[];
     // The dimensions for captured pictures in pixels (width x height).
     // Example value: "1024x768". Read/write.
     static const char KEY_PICTURE_SIZE[];
@@ -130,6 +157,7 @@ public:
     // The height (in pixels) of EXIF thumbnail in Jpeg picture.
     // Example value: "384". Read/write.
     static const char KEY_JPEG_THUMBNAIL_HEIGHT[];
+    static const char KEY_SUPPORTED_THUMBNAIL_SIZES[];
     // Supported EXIF thumbnail sizes (width x height). 0x0 means not thumbnail
     // in EXIF.
     // Example value: "512x384,320x240,0x0". Read only.
@@ -173,6 +201,31 @@ public:
     // header.
     // Example value: "21.0" or "-5". Write only.
     static const char KEY_GPS_ALTITUDE[];
+    static const char KEY_GPS_LATITUDE_REF[];
+    static const char KEY_GPS_LONGITUDE_REF[];
+    static const char KEY_GPS_ALTITUDE_REF[];
+    static const char KEY_GPS_STATUS[];
+    static const char KEY_EXIF_DATETIME[];
+
+    static const char KEY_AUTO_EXPOSURE[];
+    static const char KEY_SUPPORTED_AUTO_EXPOSURE[];
+    static const char KEY_ISO_MODE[];
+    static const char KEY_SUPPORTED_ISO_MODES[];
+    static const char KEY_LENSSHADE[] ;
+    static const char KEY_SUPPORTED_LENSSHADE_MODES[] ;
+    static const char KEY_SHARPNESS[];
+    static const char KEY_MAX_SHARPNESS[];
+    static const char KEY_CONTRAST[];
+    static const char KEY_MAX_CONTRAST[];
+    static const char KEY_SATURATION[];
+    static const char KEY_MAX_SATURATION[];
+
+    // Values for auto exposure settings.
+    static const char AUTO_EXPOSURE_FRAME_AVG[];
+    static const char AUTO_EXPOSURE_CENTER_WEIGHTED[];
+    static const char AUTO_EXPOSURE_SPOT_METERING[];
+
+
     // GPS timestamp (UTC in seconds since January 1, 1970). This should be
     // stored in JPEG EXIF header.
     // Example value: "1251192757". Write only.
@@ -192,6 +245,13 @@ public:
     // Supported color effect settings.
     // Example value: "none,mono,sepia". Read only.
     static const char KEY_SUPPORTED_EFFECTS[];
+    //Touch Af/AEC settings.
+    static const char KEY_TOUCH_AF_AEC[];
+    static const char KEY_SUPPORTED_TOUCH_AF_AEC[];
+    //Touch Index for AEC.
+    static const char KEY_TOUCH_INDEX_AEC[];
+    //Touch Index for AF.
+    static const char KEY_TOUCH_INDEX_AF[];
     // Current antibanding setting.
     // Example value: "auto" or ANTIBANDING_XXX constants. Read/write.
     static const char KEY_ANTIBANDING[];
@@ -288,6 +348,12 @@ public:
     // Example value: "0.95,1.9,Infinity" or "0.049,0.05,0.051". Read only.
     static const char KEY_FOCUS_DISTANCES[];
 
+    // The current dimensions in pixels (width x height) for video frames.
+    // The width and height must be one of the supported sizes retrieved
+    // via KEY_SUPPORTED_VIDEO_SIZES.
+    // Example value: "1280x720". Read/write.
+    static const char KEY_VIDEO_SIZE[];
+
     // The image format for video frames. See CAMERA_MSG_VIDEO_FRAME in
     // frameworks/base/include/camera/Camera.h.
     // Example value: "yuv420sp" or PIXEL_FORMAT_XXX constants. Read only.
@@ -298,6 +364,12 @@ public:
 
     // Value for KEY_FOCUS_DISTANCES.
     static const char FOCUS_DISTANCE_INFINITY[];
+
+    //Continuous AF.
+    static const char KEY_CAF[];
+    static const char KEY_CONTINUOUS_AF[];
+    static const char KEY_SUPPORTED_CAF[];
+    static const char KEY_SUPPORTED_CONTINUOUS_AF[];
 
     // Values for white balance settings.
     static const char WHITE_BALANCE_AUTO[];
@@ -319,6 +391,10 @@ public:
     static const char EFFECT_WHITEBOARD[];
     static const char EFFECT_BLACKBOARD[];
     static const char EFFECT_AQUA[];
+
+    // Values for Touch AF/AEC
+    static const char TOUCH_AF_AEC_OFF[] ;
+    static const char TOUCH_AF_AEC_ON[] ;
 
     // Values for antibanding settings.
     static const char ANTIBANDING_AUTO[];
@@ -364,9 +440,12 @@ public:
     // Formats for setPreviewFormat and setPictureFormat.
     static const char PIXEL_FORMAT_YUV422SP[];
     static const char PIXEL_FORMAT_YUV420SP[]; // NV21
+    static const char PIXEL_FORMAT_YUV420P[];
     static const char PIXEL_FORMAT_YUV422I[]; // YUY2
     static const char PIXEL_FORMAT_RGB565[];
     static const char PIXEL_FORMAT_JPEG[];
+    static const char PIXEL_FORMAT_RAW[];
+
 
     // Values for focus mode settings.
     // Auto-focus mode. Applications should call
@@ -375,6 +454,7 @@ public:
     // Focus is set at infinity. Applications should not call
     // CameraHardwareInterface.autoFocus in this mode.
     static const char FOCUS_MODE_INFINITY[];
+    static const char FOCUS_MODE_NORMAL[];
     // Macro (close-up) focus mode. Applications should call
     // CameraHardwareInterface.autoFocus to start the focus in this mode.
     static const char FOCUS_MODE_MACRO[];
@@ -395,6 +475,25 @@ public:
     // CameraHardwareInterface.autoFocus in this mode. To stop continuous focus,
     // applications should change the focus mode to other modes.
     static const char FOCUS_MODE_CONTINUOUS_VIDEO[];
+
+    // Values for Continuous AF
+    static const char CAF_OFF[] ;
+    static const char CAF_ON[] ;
+    // Proprietaries from CodeAurora use these...
+    static const char CONTINUOUS_AF_OFF[] ;
+    static const char CONTINUOUS_AF_ON[] ;
+
+    static const char ISO_AUTO[];
+    static const char ISO_HJR[] ;
+    static const char ISO_100[];
+    static const char ISO_200[] ;
+    static const char ISO_400[];
+    static const char ISO_800[];
+    static const char ISO_1600[];
+    // Values for Lens Shading
+    static const char LENSSHADE_ENABLE[] ;
+    static const char LENSSHADE_DISABLE[] ;
+
 
 private:
     DefaultKeyedVector<String8,String8>    mMap;

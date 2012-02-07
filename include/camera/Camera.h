@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
+ * Copyright (C) 2008 HTC Inc.
+ * Copyright (C) 2010, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -170,6 +172,11 @@ public:
             status_t    setPreviewDisplay(const sp<Surface>& surface);
             status_t    setPreviewDisplay(const sp<ISurface>& surface);
 
+#ifdef USE_GETBUFFERINFO
+            // query the recording buffer information from HAL layer.
+            status_t    getBufferInfo(sp<IMemory>& Frame, size_t *alignedSize);
+#endif
+
             // start preview mode, must call setPreviewDisplay first
             status_t    startPreview();
 
@@ -203,8 +210,18 @@ public:
             // set preview/capture parameters - key/value pairs
             status_t    setParameters(const String8& params);
 
+            #ifdef MOTO_CUSTOM_PARAMETERS
+            // set preview/capture parameters - key/value pairs
+            status_t    setCustomParameters(const String8& params);
+            #endif
+
             // get preview/capture parameters - key/value pairs
             String8     getParameters() const;
+
+            #ifdef MOTO_CUSTOM_PARAMETERS
+            // get preview/capture parameters - key/value pairs
+            String8     getCustomParameters() const;
+            #endif
 
             // send command to camera driver
             status_t    sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);

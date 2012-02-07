@@ -16,12 +16,12 @@
 
 package com.android.systemui.statusbar;
 
-import android.app.Service;
-import com.android.internal.statusbar.IStatusBar;
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIconList;
 import com.android.internal.statusbar.StatusBarNotification;
+import com.android.systemui.statusbar.powerwidget.PowerWidget;
+import com.android.systemui.R;
 
 import android.app.ActivityManagerNative;
 import android.app.Dialog;
@@ -39,16 +39,17 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.os.IBinder;
-import android.os.RemoteException;
 import android.os.Binder;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Message;
+import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.TextUtils;
-import android.util.Slog;
 import android.util.Log;
+import android.util.Slog;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -62,23 +63,17 @@ import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
-import android.widget.ImageView;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RemoteViews;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.FrameLayout;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
-
-import com.android.systemui.R;
-import com.android.systemui.statusbar.policy.StatusBarPolicy;
-
-
 
 public class StatusBarService extends Service implements CommandQueue.Callbacks {
     static final String TAG = "StatusBarService";
@@ -121,6 +116,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
     // top bar
     TextView mNoNotificationsTitle;
     TextView mClearButton;
+    ViewGroup mClearButtonParent;
+    TextView mCompactClearButton;
     // drag bar
     CloseDragHandle mCloseView;
     // ongoing
@@ -144,6 +141,12 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
     WindowManager.LayoutParams mTrackingParams;
     int mTrackingPosition; // the position of the top of the tracking view.
     private boolean mPanelSlightlyVisible;
+
+    // the power widget
+    PowerWidget mPowerWidget;
+
+    //Carrier label stuff
+    LinearLayout mCarrierLabelLayout;
 
     // ticker
     private Ticker mTicker;
@@ -291,12 +294,32 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         mNoNotificationsTitle = (TextView)expanded.findViewById(R.id.noNotificationsTitle);
         mClearButton = (TextView)expanded.findViewById(R.id.clear_all_button);
         mClearButton.setOnClickListener(mClearButtonListener);
+        mClearButtonParent = (ViewGroup)mClearButton.getParent();
         mScrollView = (ScrollView)expanded.findViewById(R.id.scroll);
         mNotificationLinearLayout = expanded.findViewById(R.id.notificationLinearLayout);
 
         mExpandedView.setVisibility(View.GONE);
         mOngoingTitle.setVisibility(View.GONE);
         mLatestTitle.setVisibility(View.GONE);
+
+        mPowerWidget = (PowerWidget)expanded.findViewById(R.id.exp_power_stat);
+        mPowerWidget.setupSettingsObserver(mHandler);
+        mPowerWidget.setGlobalButtonOnClickListener(new View.OnClickListener() {
+                    public void onClick(View v) {
+                        if(Settings.System.getInt(getContentResolver(),
+                                Settings.System.EXPANDED_HIDE_ONCHANGE, 0) == 1) {
+                            animateCollapse();
+                        }
+                    }
+                });
+        mPowerWidget.setGlobalButtonOnLongClickListener(new View.OnLongClickListener() {
+                   public boolean onLongClick(View v) {
+                       animateCollapse();
+                       return true;
+                   }
+               });
+
+        mCarrierLabelLayout = (LinearLayout)expanded.findViewById(R.id.carrier_label_layout);
 
         mTicker = new MyTicker(context, sb);
 
@@ -339,6 +362,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         lp.windowAnimations = com.android.internal.R.style.Animation_StatusBar;
 
         WindowManagerImpl.getDefault().addView(view, lp);
+
+        mPowerWidget.setupWidget();
     }
 
     public void addIcon(String slot, int index, int viewIndex, StatusBarIcon icon) {
@@ -497,7 +522,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         }
     }
 
-    View[] makeNotificationView(StatusBarNotification notification, ViewGroup parent) {
+    View[] makeNotificationView(final StatusBarNotification notification, ViewGroup parent) {
         Notification n = notification.notification;
         RemoteViews remoteViews = n.contentView;
         if (remoteViews == null) {
@@ -506,7 +531,18 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
 
         // create the row view
         LayoutInflater inflater = (LayoutInflater)getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        View row = inflater.inflate(R.layout.status_bar_latest_event, parent, false);
+        LatestItemContainer row = (LatestItemContainer) inflater.inflate(R.layout.status_bar_latest_event, parent, false);
+        if ((n.flags & Notification.FLAG_ONGOING_EVENT) == 0 && (n.flags & Notification.FLAG_NO_CLEAR) == 0) {
+            row.setOnSwipeCallback(new Runnable() {
+                public void run() {
+                    try {
+                        mBarService.onNotificationClear(notification.pkg, notification.tag, notification.id);
+                    } catch (RemoteException e) {
+                        // Skip it, don't crash.
+                    }
+                }
+            });
+        }
 
         // bind the click event to the content area
         ViewGroup content = (ViewGroup)row.findViewById(R.id.content);
@@ -594,6 +630,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         return entry.notification;
     }
 
+    private boolean isClearButtonAdded = false;
+
     private void setAreThereNotifications() {
         boolean ongoing = mOngoing.hasVisibleItems();
         boolean latest = mLatest.hasVisibleItems();
@@ -602,7 +640,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         if (mLatest.hasClearableItems()) {
             mClearButton.setVisibility(View.VISIBLE);
         } else {
-            mClearButton.setVisibility(View.INVISIBLE);
+            mClearButton.setVisibility(View.GONE);
         }
 
         mOngoingTitle.setVisibility(ongoing ? View.VISIBLE : View.GONE);
@@ -683,6 +721,8 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         }
         mExpandedVisible = true;
         visibilityChanged(true);
+
+        mPowerWidget.updateWidget();
 
         updateExpandedViewPos(EXPANDED_LEAVE_ALONE);
         mExpandedParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
@@ -1195,7 +1235,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
         Drawable bg;
 
         /// ---------- Tracking View --------------
-        pixelFormat = PixelFormat.RGBX_8888;
+        pixelFormat = PixelFormat.TRANSLUCENT;
         bg = mTrackingView.getBackground();
         if (bg != null) {
             pixelFormat = bg.getOpacity();
@@ -1441,8 +1481,7 @@ public class StatusBarService extends Service implements CommandQueue.Callbacks 
             if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(action)
                     || Intent.ACTION_SCREEN_OFF.equals(action)) {
                 animateCollapse();
-            }
-            else if (Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
+            } else if (Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
                 updateResources();
             }
         }

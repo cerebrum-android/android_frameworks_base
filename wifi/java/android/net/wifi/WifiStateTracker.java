@@ -2626,25 +2626,25 @@ public class WifiStateTracker extends NetworkStateTracker {
             if (addr != null) {
                 mDhcpInfo.ipAddress = stringToIpAddr(addr);
             } else {
-                mDhcpInfo.ipAddress = 0;
+                return;
             }
             addr = Settings.System.getString(cr, Settings.System.WIFI_STATIC_GATEWAY);
             if (addr != null) {
                 mDhcpInfo.gateway = stringToIpAddr(addr);
             } else {
-                mDhcpInfo.gateway = 0;
+                return;
             }
             addr = Settings.System.getString(cr, Settings.System.WIFI_STATIC_NETMASK);
             if (addr != null) {
                 mDhcpInfo.netmask = stringToIpAddr(addr);
             } else {
-                mDhcpInfo.netmask = 0;
+                return;
             }
             addr = Settings.System.getString(cr, Settings.System.WIFI_STATIC_DNS1);
             if (addr != null) {
                 mDhcpInfo.dns1 = stringToIpAddr(addr);
             } else {
-                mDhcpInfo.dns1 = 0;
+                return;
             }
             addr = Settings.System.getString(cr, Settings.System.WIFI_STATIC_DNS2);
             if (addr != null) {

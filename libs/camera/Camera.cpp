@@ -1,6 +1,8 @@
 /*
 **
 ** Copyright (C) 2008, The Android Open Source Project
+** Copyright (C) 2008 HTC Inc.
+** Copyright (C) 2010, Code Aurora Forum. All rights reserved.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -130,6 +132,10 @@ sp<Camera> Camera::connect(int cameraId)
     return c;
 }
 
+extern "C" sp<Camera> _ZN7android6Camera7connectEv () {
+    return Camera::connect(0);
+}
+
 void Camera::disconnect()
 {
     LOGV("disconnect");
@@ -192,6 +198,15 @@ status_t Camera::setPreviewDisplay(const sp<ISurface>& surface)
     return c->setPreviewDisplay(surface);
 }
 
+#ifdef USE_GETBUFFERINFO
+status_t Camera::getBufferInfo(sp<IMemory>& Frame, size_t *alignedSize)
+{
+    LOGV("getBufferInfo");
+    sp <ICamera> c = mCamera;
+    if (c == 0) return NO_INIT;
+    return c->getBufferInfo(Frame, alignedSize);
+}
+#endif
 
 // start preview mode
 status_t Camera::startPreview()
@@ -290,7 +305,18 @@ status_t Camera::setParameters(const String8& params)
     return c->setParameters(params);
 }
 
-// get preview/capture parameters - key/value pairs
+#ifdef MOTO_CUSTOM_PARAMETERS
+// set preview/capture custom parameters - key/value pairs
+status_t Camera::setCustomParameters(const String8& params)
+{
+    LOGV("setCustomParameters");
+    sp <ICamera> c = mCamera;
+    if (c == 0) return NO_INIT;
+    return c->setCustomParameters(params);
+}
+#endif
+
+// get preview/capture custom parameters - key/value pairs
 String8 Camera::getParameters() const
 {
     LOGV("getParameters");
@@ -299,6 +325,18 @@ String8 Camera::getParameters() const
     if (c != 0) params = mCamera->getParameters();
     return params;
 }
+
+#ifdef MOTO_CUSTOM_PARAMETERS
+// get preview/capture parameters - key/value pairs
+String8 Camera::getCustomParameters() const
+{
+    LOGV("getCustomParameters");
+    String8 params;
+    sp <ICamera> c = mCamera;
+    if (c != 0) params = mCamera->getCustomParameters();
+    return params;
+}
+#endif
 
 // send command to camera driver
 status_t Camera::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2)

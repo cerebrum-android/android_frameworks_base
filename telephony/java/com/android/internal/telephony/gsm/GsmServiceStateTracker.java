@@ -582,9 +582,11 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
     }
 
     protected void updateSpnDisplay() {
-        int rule = phone.mSIMRecords.getDisplayRule(ss.getOperatorNumeric());
+        // getServiceProviderName() will trigger SPN locale update.
         String spn = phone.mSIMRecords.getServiceProviderName();
         String plmn = ss.getOperatorAlphaLong();
+        // getDisplayRule() should be done after getting SPN updated.
+        int rule = phone.mSIMRecords.getDisplayRule(ss.getOperatorNumeric());
 
         // For emergency calls only, pass the EmergencyCallsOnly string via EXTRA_PLMN
         if (mEmergencyOnly && cm.getRadioState().isOn()) {
@@ -593,6 +595,7 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
         }
 
         if (rule != curSpnRule
+                || plmn == null
                 || !TextUtils.equals(spn, curSpn)
                 || !TextUtils.equals(plmn, curPlmn)) {
             boolean showSpn = !mEmergencyOnly
@@ -855,6 +858,9 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
             case DATA_ACCESS_HSPA:
                 ret = "HSPA";
                 break;
+            case DATA_ACCESS_HSPAP:
+                ret = "HSPA+";
+                break;
             default:
                 Log.e(LOG_TAG, "Wrong network type: " + Integer.toString(type));
                 break;
@@ -945,8 +951,6 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
         if (hasChanged) {
             String operatorNumeric;
 
-            updateSpnDisplay();
-
             phone.setSystemProperty(TelephonyProperties.PROPERTY_OPERATOR_ALPHA,
                 ss.getOperatorAlphaLong());
 
@@ -1012,7 +1016,12 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
             phone.setSystemProperty(TelephonyProperties.PROPERTY_OPERATOR_ISROAMING,
                 ss.getRoaming() ? "true" : "false");
 
+            updateSpnDisplay();
+
             phone.notifyServiceStateChanged(ss);
+
+        } else if (hasDeregistered) {
+            updateSpnDisplay();
         }
 
         if (hasGprsAttached) {
@@ -1084,6 +1093,17 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
     }
 
     private TimeZone findTimeZone(int offset, boolean dst, long when) {
+        /**
+         * http://wtogami.blogspot.com/2012/01/hawaii-android-automatic-time-zone-bug.html
+         * NITZ UTC-10 without DST can only be Hawaii
+         * Impossible to differentiate America/Adak from Honolulu/Pacific
+         * from NITZ alone.
+         **/
+        if (offset == -36000000 && dst == false) {
+            Log.d(LOG_TAG, "findTimeZone() Forcing Hawaii Timezone for UTC-10");
+            return TimeZone.getTimeZone("Pacific/Honolulu");
+        }
+
         int rawOffset = offset;
         if (dst) {
             rawOffset -= 3600000;
@@ -1298,7 +1318,14 @@ final class GsmServiceStateTracker extends ServiceStateTracker {
      * @return true for roaming state set
      */
     private boolean isRoamingBetweenOperators(boolean gsmRoaming, ServiceState s) {
-        String spn = SystemProperties.get(TelephonyProperties.PROPERTY_ICC_OPERATOR_ALPHA, "empty");
+
+/*        boolean mvnoRoaming = Settings.System.getInt(
+                phone.getContext().getContentResolver(),
+                Settings.Secure.MVNO_ROAMING, 0) == 1;
+*/
+        String spn;
+
+        spn = SystemProperties.get(TelephonyProperties.PROPERTY_ICC_OPERATOR_ALPHA, "empty");
 
         String onsl = s.getOperatorAlphaLong();
         String onss = s.getOperatorAlphaShort();

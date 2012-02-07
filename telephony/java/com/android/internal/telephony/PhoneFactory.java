@@ -116,6 +116,21 @@ public class PhoneFactory {
                 {
                     Log.i(LOG_TAG, "Using Samsung RIL");
                     sCommandsInterface = new SamsungRIL(context, networkMode, cdmaSubscription);
+                } else if ("htc".equals(sRILClassname)) {
+                    Log.i(LOG_TAG, "Using HTC RIL");
+                    sCommandsInterface = new HTCRIL(context, networkMode, cdmaSubscription);
+                } else if("lgestar".equals(sRILClassname)) {
+                    Log.i(LOG_TAG, "Using LGE Star RIL");
+                    sCommandsInterface = new LGEStarRIL(context, networkMode, cdmaSubscription);
+                } else if ("semc".equals(sRILClassname)) {
+                    Log.i(LOG_TAG, "Using Semc RIL");
+                    sCommandsInterface = new SemcRIL(context, networkMode, cdmaSubscription);
+                } else if ("lgeqcom".equals(sRILClassname)) {
+                    Log.i(LOG_TAG, "Using LGE Qualcomm RIL");
+                    sCommandsInterface = new LGEQualcommRIL(context, networkMode, cdmaSubscription);
+                } else if ("mototegra".equals(sRILClassname)) {
+                    Log.i(LOG_TAG, "Using Motorola Tegra2 RIL");
+                    sCommandsInterface = new MotoTegraRIL(context, networkMode, cdmaSubscription);
                 } else {
                     sCommandsInterface = new RIL(context, networkMode, cdmaSubscription);
                 }
