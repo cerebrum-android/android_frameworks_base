@@ -51,7 +51,6 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.provider.Settings;
-import android.provider.Settings.SettingNotFoundException;
 import android.provider.Settings.System;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
@@ -59,7 +58,6 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.VolumePanel;
 
-import com.android.internal.app.ThemeUtils;
 import com.android.internal.telephony.ITelephony;
 
 import java.io.FileDescriptor;
@@ -102,8 +100,6 @@ public class AudioService extends IAudioService.Stub {
 
     /** The UI */
     private VolumePanel mVolumePanel;
-    private Context mUiContext;
-    private Handler mHandler;
 
     // sendMsg() flags
     /** Used when a message should be shared across all stream types. */
@@ -207,28 +203,6 @@ public class AudioService extends IAudioService.Stub {
         AudioSystem.STREAM_VOICE_CALL, // STREAM_DTMF
         AudioSystem.STREAM_MUSIC  // STREAM_TTS
     };
-
-    private static final String[] STREAM_VOLUME_HEADSET_SETTINGS = new String[] {
-        "AudioService.SAVED_VOICE_CALL_HEADSET_VOL",
-        "AudioService.SAVED_SYSTEM_HEADSET_VOL",
-        "AudioService.SAVED_RING_HEADSET_VOL",
-        "AudioService.SAVED_MUSIC_HEADSET_VOL",
-        "AudioService.SAVED_ALARM_HEADSET_VOL",
-        "AudioService.SAVED_NOTIFICATION_HEADSET_VOL",
-    };
-
-    private static final String[] STREAM_VOLUME_SPEAKER_SETTINGS = new String[] {
-        "AudioService.SAVED_VOICE_CALL_SPEAKER_VOL",
-        "AudioService.SAVED_SYSTEM_SPEAKER_VOL",
-        "AudioService.SAVED_RING_SPEAKER_VOL",
-        "AudioService.SAVED_MUSIC_SPEAKER_VOL",
-        "AudioService.SAVED_ALARM_SPEAKER_VOL",
-        "AudioService.SAVED_NOTIFICATION_SPEAKER_VOL",
-    };
-
-    private static final int HEADSET_VOLUME_RESTORE_CAP_VOICE_CALL = 3; // Out of 5
-    private static final int HEADSET_VOLUME_RESTORE_CAP_MUSIC = 8; // Out of 15
-    private static final int HEADSET_VOLUME_RESTORE_CAP_OTHER = 4; // Out of 7
 
     private AudioSystem.ErrorCallback mAudioSystemCallback = new AudioSystem.ErrorCallback() {
         public void onError(int error) {
@@ -357,7 +331,6 @@ public class AudioService extends IAudioService.Stub {
     public AudioService(Context context) {
         mContext = context;
         mContentResolver = context.getContentResolver();
-        mHandler = new Handler();
         mVoiceCapable = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_voice_capable);
 
@@ -370,6 +343,7 @@ public class AudioService extends IAudioService.Stub {
                 "ro.config.sound_fx_volume",
                 SOUND_EFFECT_DEFAULT_VOLUME_DB);
 
+        mVolumePanel = new VolumePanel(context, this);
         mForcedUseForComm = AudioSystem.FORCE_NONE;
         createAudioSystemThread();
         readPersistedSettings();
@@ -407,13 +381,6 @@ public class AudioService extends IAudioService.Stub {
         pkgFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
         pkgFilter.addDataScheme("package");
         context.registerReceiver(mReceiver, pkgFilter);
-
-        ThemeUtils.registerThemeChangeReceiver(context, new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                mUiContext = null;
-            }
-        });
 
         // Register for media button intent broadcasts.
         intentFilter = new IntentFilter(Intent.ACTION_MEDIA_BUTTON);
@@ -492,15 +459,6 @@ public class AudioService extends IAudioService.Stub {
         } else {
             mRingerModeAffectedStreams |= (1 << AudioSystem.STREAM_MUSIC);
         }
-
-        boolean linkNotificationWithVolume = Settings.System.getInt(mContentResolver,
-                Settings.System.VOLUME_LINK_NOTIFICATION, 1) == 1;
-        if (linkNotificationWithVolume) {
-            STREAM_VOLUME_ALIAS[AudioSystem.STREAM_NOTIFICATION] = AudioSystem.STREAM_RING;
-        } else {
-            STREAM_VOLUME_ALIAS[AudioSystem.STREAM_NOTIFICATION] = AudioSystem.STREAM_NOTIFICATION;
-        }
-
         Settings.System.putInt(cr,
                 Settings.System.MODE_RINGER_STREAMS_AFFECTED, mRingerModeAffectedStreams);
 
@@ -655,7 +613,8 @@ public class AudioService extends IAudioService.Stub {
             streamType = AudioSystem.STREAM_NOTIFICATION;
         }
 
-        showVolumeChangeUi(streamType, flags);
+        mVolumePanel.postVolumeChanged(streamType, flags);
+
         oldIndex = (oldIndex + 5) / 10;
         index = (index + 5) / 10;
         Intent intent = new Intent(AudioManager.VOLUME_CHANGED_ACTION);
@@ -2356,8 +2315,6 @@ public class AudioService extends IAudioService.Stub {
             super(new Handler());
             mContentResolver.registerContentObserver(Settings.System.getUriFor(
                 Settings.System.MODE_RINGER_STREAMS_AFFECTED), false, this);
-            mContentResolver.registerContentObserver(Settings.System.getUriFor(
-                Settings.System.VOLUME_LINK_NOTIFICATION), false, this);
         }
 
         @Override
@@ -2380,13 +2337,6 @@ public class AudioService extends IAudioService.Stub {
                      */
                     mRingerModeAffectedStreams = ringerModeAffectedStreams;
                     setRingerModeInt(getRingerMode(), false);
-                }
-                boolean linkNotificationWithVolume = Settings.System.getInt(mContentResolver,
-                        Settings.System.VOLUME_LINK_NOTIFICATION, 1) == 1;
-                if (linkNotificationWithVolume) {
-                    STREAM_VOLUME_ALIAS[AudioSystem.STREAM_NOTIFICATION] = AudioSystem.STREAM_RING;
-                } else {
-                    STREAM_VOLUME_ALIAS[AudioSystem.STREAM_NOTIFICATION] = AudioSystem.STREAM_NOTIFICATION;
                 }
             }
         }
@@ -2573,67 +2523,6 @@ public class AudioService extends IAudioService.Stub {
                 int state = intent.getIntExtra("state", 0);
                 int microphone = intent.getIntExtra("microphone", 0);
 
-                //Save and restore volumes for headset and speaker
-                int lastVolume;
-                if (state == 1) {
-                    // Headset plugged in
-                    final boolean capVolumeRestore = Settings.System.getInt(mContentResolver,
-                            Settings.System.SAFE_HEADSET_VOLUME_RESTORE, 1) == 1;
-                    for (int stream = 0; stream < STREAM_VOLUME_HEADSET_SETTINGS.length; stream++) {
-                        final int streamAlias = STREAM_VOLUME_ALIAS[stream];
-                        // Save speaker volume
-                        System.putInt(mContentResolver, STREAM_VOLUME_SPEAKER_SETTINGS[stream],
-                                getStreamVolume(streamAlias));
-                        // Restore headset volume
-                        try {
-                            lastVolume = System.getInt(mContentResolver,
-                                    STREAM_VOLUME_HEADSET_SETTINGS[streamAlias]);
-                        } catch (SettingNotFoundException e) {
-                            lastVolume = -1;
-                        }
-                        if (lastVolume >= 0) {
-                            if (capVolumeRestore) {
-                                final int volumeCap;
-                                switch (streamAlias) {
-                                    case AudioSystem.STREAM_VOICE_CALL:
-                                        volumeCap = HEADSET_VOLUME_RESTORE_CAP_VOICE_CALL;
-                                        break;
-                                    case AudioSystem.STREAM_MUSIC:
-                                        volumeCap = HEADSET_VOLUME_RESTORE_CAP_MUSIC;
-                                        break;
-                                    case AudioSystem.STREAM_SYSTEM:
-                                    case AudioSystem.STREAM_RING:
-                                    case AudioSystem.STREAM_ALARM:
-                                    case AudioSystem.STREAM_NOTIFICATION:
-                                    default:
-                                        volumeCap = HEADSET_VOLUME_RESTORE_CAP_OTHER;
-                                        break;
-                                }
-                                setStreamVolume(streamAlias, Math.min(volumeCap, lastVolume), 0);
-                            } else {
-                                setStreamVolume(streamAlias, lastVolume, 0);
-                            }
-                        }
-                    }
-                } else {
-                    // Headset disconnected
-                    for (int stream = 0; stream < STREAM_VOLUME_SPEAKER_SETTINGS.length; stream++) {
-                        final int streamAlias = STREAM_VOLUME_ALIAS[stream];
-                        // Save headset volume
-                        System.putInt(mContentResolver, STREAM_VOLUME_HEADSET_SETTINGS[stream],
-                                getStreamVolume(streamAlias));
-                        // Restore speaker volume
-                        try {
-                            lastVolume = System.getInt(mContentResolver,
-                                    STREAM_VOLUME_SPEAKER_SETTINGS[streamAlias]);
-                        } catch (SettingNotFoundException e) {
-                            lastVolume = -1;
-                        }
-                        if (lastVolume >= 0)
-                            setStreamVolume(streamAlias, lastVolume, 0);
-                    }
-                }
-
                 synchronized (mConnectedDevices) {
                     if (microphone != 0) {
                         boolean isConnected =
@@ -2682,17 +2571,12 @@ public class AudioService extends IAudioService.Stub {
                                                         "");
                         mConnectedDevices.remove(AudioSystem.DEVICE_OUT_ANLG_DOCK_HEADSET);
                     } else if (state == 1 && !isConnected)  {
-                        // Only Route the Audio if enabled in Dock Settings
-                        if (Settings.System.getInt(mContentResolver,Settings.System.DOCK_USB_AUDIO_ENABLED, 0) == 1) {
-                            AudioSystem.setDeviceConnectionState(
+                        AudioSystem.setDeviceConnectionState(
                                                         AudioSystem.DEVICE_OUT_ANLG_DOCK_HEADSET,
                                                         AudioSystem.DEVICE_STATE_AVAILABLE,
                                                         "");
-                            mConnectedDevices.put(
+                        mConnectedDevices.put(
                                 new Integer(AudioSystem.DEVICE_OUT_ANLG_DOCK_HEADSET), "");
-                        } else {
-                            Log.v(TAG, "Broadcast Receiver: Not using USB audio by request");
-                        }
                     }
                 }
             } else if (action.equals(Intent.ACTION_HDMI_AUDIO_PLUG)) {
@@ -2815,25 +2699,6 @@ public class AudioService extends IAudioService.Stub {
             } else if (action.equals(Intent.ACTION_SCREEN_OFF)) {
                 AudioSystem.setParameters("screen_state=off");
             }
-        }
-    }
-
-    private void showVolumeChangeUi(final int streamType, final int flags) {
-        if (mUiContext != null && mVolumePanel != null) {
-            mVolumePanel.postVolumeChanged(streamType, flags);
-        } else {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (mUiContext == null) {
-                        mUiContext = ThemeUtils.createUiContext(mContext);
-                    }
-
-                    final Context context = mUiContext != null ? mUiContext : mContext;
-                    mVolumePanel = new VolumePanel(context, AudioService.this);
-                    mVolumePanel.postVolumeChanged(streamType, flags);
-                }
-            });
         }
     }
 
