@@ -30,7 +30,6 @@ commonSources:= \
 	LinearTransform.cpp \
 	ObbFile.cpp \
 	PropertyMap.cpp \
-	PackageRedirectionMap.cpp \
 	RefBase.cpp \
 	ResourceTypes.cpp \
 	SharedBuffer.cpp \
