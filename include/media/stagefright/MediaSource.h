@@ -22,24 +22,14 @@
 
 #include <media/stagefright/MediaErrors.h>
 #include <utils/RefBase.h>
-#ifdef USE_GETBUFFERINFO
-#include <binder/IMemory.h>
-#endif
-#ifdef OMAP_ENHANCEMENT
 #include <utils/Vector.h>
-#include "binder/IMemory.h"
-#endif
 
 namespace android {
 
 class MediaBuffer;
 class MetaData;
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-struct S3D_params;
-#endif
-
-struct MediaSource : public RefBase {
+struct MediaSource : public virtual RefBase {
     MediaSource();
 
     // To be called before any other methods on this object, except
@@ -89,31 +79,18 @@ struct MediaSource : public RefBase {
         void clearSeekTo();
         bool getSeekTo(int64_t *time_us, SeekMode *mode) const;
 
-        // Option allows encoder to skip some frames until the specified
-        // time stamp.
-        // To prevent from being abused, when the skipFrame timestamp is
-        // found to be more than 1 second later than the current timestamp,
-        // an error will be returned from read().
-        void clearSkipFrame();
-        bool getSkipFrame(int64_t *timeUs) const;
-        void setSkipFrame(int64_t timeUs);
-
         void setLateBy(int64_t lateness_us);
         int64_t getLateBy() const;
 
     private:
         enum Options {
-            // Bit map
             kSeekTo_Option      = 1,
-            kSkipFrame_Option   = 2,
         };
 
         uint32_t mOptions;
         int64_t mSeekTimeUs;
         SeekMode mSeekMode;
         int64_t mLatenessUs;
-
-        int64_t mSkipFrameUntilTimeUs;
     };
 
     // Causes this source to suspend pulling data from its upstream source
@@ -123,9 +100,14 @@ struct MediaSource : public RefBase {
         return ERROR_UNSUPPORTED;
     }
 
-#ifdef USE_GETBUFFERINFO
-    virtual status_t getBufferInfo(sp<IMemory>& Frame, size_t *alignedSize);
-#endif
+    // The consumer of this media source requests that the given buffers
+    // are to be returned exclusively in response to read calls.
+    // This will be called after a successful start() and before the
+    // first read() call.
+    // Callee assumes ownership of the buffers if no error is returned.
+    virtual status_t setBuffers(const Vector<MediaBuffer *> &buffers) {
+        return ERROR_UNSUPPORTED;
+    }
 
 protected:
     virtual ~MediaSource();
@@ -133,18 +115,6 @@ protected:
 private:
     MediaSource(const MediaSource &);
     MediaSource &operator=(const MediaSource &);
-
-public:
-#ifdef OMAP_ENHANCEMENT
-    // Method to share externally allocated buffers with the Codec.
-    virtual void setBuffers(Vector< sp<IMemory> > mBufferAddresse, bool portReconfig = false) {}
-    // Method used to reset read position without consuming the buffer
-    virtual int64_t setSeekTo(const ReadOptions *options) { return 0; }
-    virtual int getNumofOutputBuffers() {return -1; }
-#if defined(TARGET_OMAP4)
-    virtual void parseSEIMessages(S3D_params &mS3Dparams) {}
-#endif
-#endif
 };
 
 }  // namespace android

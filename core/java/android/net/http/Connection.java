@@ -47,16 +47,11 @@ abstract class Connection {
      */
     static final int SOCKET_TIMEOUT = 60000;
 
-    private static final int MAX_PRIORITY = 1000;
-
     private static final int SEND = 0;
     private static final int READ = 1;
     private static final int DRAIN = 2;
     private static final int DONE = 3;
-    private static final int PRIO = 4;
-    private static final String[] states = {"SEND",  "READ", "DRAIN", "DONE", "PRIO"};
-
-    private ConnectionThread mConnectionThread;
+    private static final String[] states = {"SEND",  "READ", "DRAIN", "DONE"};
 
     Context mContext;
 
@@ -115,7 +110,6 @@ abstract class Connection {
 
         mCanPersist = false;
         mHttpContext = new BasicHttpContext(null);
-        mConnectionThread = null;
     }
 
     HttpHost getHost() {
@@ -146,10 +140,6 @@ abstract class Connection {
         return mCertificate;
     }
 
-    void setConnectionThread(ConnectionThread thread) {
-        mConnectionThread = thread;
-    }
-
     /**
      * Close current network connection
      * Note: this runs in non-network thread
@@ -167,7 +157,6 @@ abstract class Connection {
      */
     void processRequests(Request firstRequest) {
         Request req = null;
-        Request peek = null;
         boolean empty;
         int error = EventHandler.OK;
         Exception exception = null;
@@ -208,36 +197,6 @@ abstract class Connection {
                         state = DRAIN;
                         break;
                     }
-
-                    // ### synchronize on mRequestFeeder instead of requeing newreq?
-
-                    if (req.mPriority == -1 ||
-                        req.mPriority > MAX_PRIORITY) {
-                        /*
-                        || pipe.size() + 1 == maxPipe
-                        || req.mPriority == -1) {
-                        */
-                        peek = mRequestFeeder.peekRequest();
-                        if (peek != null) {
-                            int ppri = peek.mPriority;
-                            if ((req.mPriority == -1 && ppri >= 0)
-                                || (req.mPriority >= 0 && ppri < req.mPriority)) {
-                                Request newreq = mRequestFeeder.getRequest();
-                                if (newreq != null) {
-                                    if (!newreq.equals(peek)
-                                        || peek.mPriority != ppri) {
-                                        mRequestFeeder.requeueRequest(newreq, false, true);
-                                    } else {
-                                        mConnectionThread.setNewRequest(newreq);
-                                        state = PRIO;
-                                        mRequestFeeder.requeueRequest(req, false, true);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     req.setConnection(this);
 
                     /* Don't work on cancelled requests. */
@@ -292,34 +251,27 @@ abstract class Connection {
                             pipe.addLast(req);
                         }
                         exception = null;
-                        if (clearPipe(pipe))
-                            state = DONE;
-                        else if (state != PRIO)
-                            state = SEND;
+                        state = clearPipe(pipe) ? DONE : SEND;
                         minPipe = maxPipe = 1;
                         break;
                     }
 
                     pipe.addLast(req);
-                    if (!mCanPersist && state != PRIO) state = READ;
+                    if (!mCanPersist) state = READ;
                     break;
 
                 }
-                case PRIO:
                 case DRAIN:
                 case READ: {
                     empty = !mRequestFeeder.haveRequest(mHost);
                     int pipeSize = pipe.size();
-                    if (state != PRIO && state != DRAIN && pipeSize < minPipe &&
+                    if (state != DRAIN && pipeSize < minPipe &&
                         !empty && mCanPersist) {
                         state = SEND;
                         break;
                     } else if (pipeSize == 0) {
                         /* Done if no other work to do */
-                        if (state == PRIO)
-                            state = DONE;
-                        else
-                            state = empty ? DONE : SEND;
+                        state = empty ? DONE : SEND;
                         break;
                     }
 
@@ -360,8 +312,7 @@ abstract class Connection {
                         mHttpContext.removeAttribute(HTTP_CONNECTION);
                         clearPipe(pipe);
                         minPipe = maxPipe = 1;
-                        if (state != PRIO)
-                            state = SEND;
+                        state = SEND;
                     }
                     break;
                 }
@@ -384,7 +335,7 @@ abstract class Connection {
                 tReq = (Request)pipe.removeLast();
                 if (HttpLog.LOGV) HttpLog.v(
                         "clearPipe() adding back " + mHost + " " + tReq);
-                mRequestFeeder.requeueRequest(tReq, true, false);
+                mRequestFeeder.requeueRequest(tReq);
                 empty = false;
             }
             if (empty) empty = !mRequestFeeder.haveRequest(mHost);
@@ -455,7 +406,7 @@ abstract class Connection {
         } else {
             if (req.mFailCount < RETRY_REQUEST_LIMIT) {
                 // requeue
-                mRequestFeeder.requeueRequest(req, true, false);
+                mRequestFeeder.requeueRequest(req);
                 req.mFailCount++;
             } else {
                 httpFailure(req, error, exception);
@@ -486,8 +437,7 @@ abstract class Connection {
             ret = false;
             String error;
             if (errorId < 0) {
-                error = mContext.getText(
-                        EventHandler.errorStringResources[-errorId]).toString();
+                error = ErrorStrings.getString(errorId, mContext);
             } else {
                 Throwable cause = e.getCause();
                 error = cause != null ? cause.toString() : e.getMessage();

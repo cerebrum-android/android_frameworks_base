@@ -17,9 +17,8 @@
 #ifndef MEDIA_EXTRACTOR_H_
 
 #define MEDIA_EXTRACTOR_H_
-#include <utils/RefBase.h>
 
-#include <utils/String8.h>
+#include <utils/RefBase.h>
 
 namespace android {
 
@@ -34,16 +33,10 @@ public:
 
     virtual size_t countTracks() = 0;
     virtual sp<MediaSource> getTrack(size_t index) = 0;
-#ifdef OMAP_ENHANCEMENT
-    enum GetTrackMetaDataFlags {
-        kIncludeExtensiveMetaData = 1,
-        kSelectFirstSample = 2
-    };
-#else
+
     enum GetTrackMetaDataFlags {
         kIncludeExtensiveMetaData = 1
-     };
-#endif
+    };
     virtual sp<MetaData> getTrackMetaData(
             size_t index, uint32_t flags = 0) = 0;
 
@@ -62,17 +55,27 @@ public:
     // CAN_SEEK_BACKWARD | CAN_SEEK_FORWARD | CAN_SEEK | CAN_PAUSE
     virtual uint32_t flags() const;
 
+    // for DRM
+    virtual void setDrmFlag(bool flag) {
+        mIsDrm = flag;
+    };
+    virtual bool getDrmFlag() {
+        return mIsDrm;
+    }
+    virtual char* getDrmTrackInfo(size_t trackID, int *len) {
+        return NULL;
+    }
+
 protected:
     MediaExtractor() {}
     virtual ~MediaExtractor() {}
 
 private:
+    bool mIsDrm;
+
     MediaExtractor(const MediaExtractor &);
     MediaExtractor &operator=(const MediaExtractor &);
 };
-
-bool SniffMPEG4(
-        const sp<DataSource> &source, String8 *mimeType, float *confidence);
 
 }  // namespace android
 

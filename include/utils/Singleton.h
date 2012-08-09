@@ -20,12 +20,13 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <utils/threads.h>
+#include <cutils/compiler.h>
 
 namespace android {
 // ---------------------------------------------------------------------------
 
 template <typename TYPE>
-class Singleton
+class ANDROID_API Singleton
 {
 public:
     static TYPE& getInstance() {
@@ -36,6 +37,11 @@ public:
             sInstance = instance;
         }
         return *instance;
+    }
+
+    static bool hasInstance() {
+        Mutex::Autolock _l(sLock);
+        return sInstance != 0;
     }
     
 protected:

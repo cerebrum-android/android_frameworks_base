@@ -55,6 +55,12 @@ import java.io.IOException;
  * <p class="note"><strong>Note:</strong>
  * Requires the {@link android.Manifest.permission#BLUETOOTH} permission.
  *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using Bluetooth, read the
+ * <a href="{@docRoot}guide/topics/wireless/bluetooth.html">Bluetooth</a> developer guide.</p>
+ * </div>
+ *
  * {@see BluetoothSocket}
  */
 public final class BluetoothServerSocket implements Closeable {
@@ -62,6 +68,7 @@ public final class BluetoothServerSocket implements Closeable {
     /*package*/ final BluetoothSocket mSocket;
     private Handler mHandler;
     private int mMessage;
+    private final int mChannel;
 
     /**
      * Construct a socket for incoming connections.
@@ -74,6 +81,7 @@ public final class BluetoothServerSocket implements Closeable {
      */
     /*package*/ BluetoothServerSocket(int type, boolean auth, boolean encrypt, int port)
             throws IOException {
+        mChannel = port;
         mSocket = new BluetoothSocket(type, -1, auth, encrypt, null, port, null);
     }
 
@@ -124,5 +132,13 @@ public final class BluetoothServerSocket implements Closeable {
     /*package*/ synchronized void setCloseHandler(Handler handler, int message) {
         mHandler = handler;
         mMessage = message;
+    }
+
+    /**
+     * Returns the channel on which this socket is bound.
+     * @hide
+     */
+    public int getChannel() {
+        return mChannel;
     }
 }

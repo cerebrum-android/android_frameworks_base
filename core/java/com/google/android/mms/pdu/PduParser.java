@@ -20,7 +20,6 @@ package com.google.android.mms.pdu;
 import com.google.android.mms.ContentType;
 import com.google.android.mms.InvalidHeaderValueException;
 
-import android.util.Config;
 import android.util.Log;
 
 import java.io.ByteArrayInputStream;
@@ -86,7 +85,7 @@ public class PduParser {
      */
     private static final String LOG_TAG = "PduParser";
     private static final boolean DEBUG = false;
-    private static final boolean LOCAL_LOGV = DEBUG ? Config.LOGD : Config.LOGV;
+    private static final boolean LOCAL_LOGV = false;
 
     /**
      * Constructor.
@@ -164,6 +163,13 @@ public class PduParser {
                     // The MMS content type must be "application/vnd.wap.multipart.mixed"
                     // or "application/vnd.wap.multipart.related"
                     // or "application/vnd.wap.multipart.alternative"
+                    return retrieveConf;
+                } else if (ctTypeStr.equals(ContentType.MULTIPART_ALTERNATIVE)) {
+                    // "application/vnd.wap.multipart.alternative"
+                    // should take only the first part.
+                    PduPart firstPart = mBody.getPart(0);
+                    mBody.removeAll();
+                    mBody.addPart(0, firstPart);
                     return retrieveConf;
                 }
                 return null;
@@ -1561,25 +1567,12 @@ public class PduParser {
                                 .android.internal.R.bool.config_mms_content_disposition_support);
 
                         if (contentDisposition) {
-                          int len = -1;
-                          boolean validDispositionLength = true;
-                          pduDataStream.mark(1);
+                            int len = parseValueLength(pduDataStream);
+                            pduDataStream.mark(1);
+                            int thisStartPos = pduDataStream.available();
+                            int thisEndPos = 0;
+                            int value = pduDataStream.read();
 
-                          try {
-                            len = parseValueLength(pduDataStream);
-                          } catch (RuntimeException e) {
-                            // tolerate invalid content-disposition length
-                            len = 31;
-                            validDispositionLength = false;
-                            pduDataStream.reset();
-                          }
-
-                          pduDataStream.mark(1);
-                          int thisStartPos = pduDataStream.available();
-                          int thisEndPos = 0;
-                          int value = pduDataStream.read();
-
-                          if (validDispositionLength) {
                             if (value == PduPart.P_DISPOSITION_FROM_DATA ) {
                                 part.setContentDisposition(PduPart.DISPOSITION_FROM_DATA);
                             } else if (value == PduPart.P_DISPOSITION_ATTACHMENT) {
@@ -1592,33 +1585,27 @@ public class PduParser {
                                 part.setContentDisposition(parseWapString(pduDataStream
                                         , TYPE_TEXT_STRING));
                             }
-                          } else {
-                              pduDataStream.reset();
-                              /* Token-text */
-                              part.setContentDisposition(parseWapString(pduDataStream, TYPE_TEXT_STRING));
-                          }
 
-
-                          /* get filename parameter and skip other parameters */
-                          thisEndPos = pduDataStream.available();
-                          if (thisStartPos - thisEndPos < len) {
-                            value = pduDataStream.read();
-                            if (value == PduPart.P_FILENAME) { //filename is text-string
-                                part.setFilename(parseWapString(pduDataStream
-                                        , TYPE_TEXT_STRING));
-                            }
-
-                            /* skip other parameters */
+                            /* get filename parameter and skip other parameters */
                             thisEndPos = pduDataStream.available();
                             if (thisStartPos - thisEndPos < len) {
-                                int last = len - (thisStartPos - thisEndPos);
-                                byte[] temp = new byte[last];
-                                pduDataStream.read(temp, 0, last);
-                            }
-                          }
+                                value = pduDataStream.read();
+                                if (value == PduPart.P_FILENAME) { //filename is text-string
+                                    part.setFilename(parseWapString(pduDataStream
+                                            , TYPE_TEXT_STRING));
+                                }
 
-                          tempPos = pduDataStream.available();
-                          lastLen = length - (startPos - tempPos);
+                                /* skip other parameters */
+                                thisEndPos = pduDataStream.available();
+                                if (thisStartPos - thisEndPos < len) {
+                                    int last = len - (thisStartPos - thisEndPos);
+                                    byte[] temp = new byte[last];
+                                    pduDataStream.read(temp, 0, last);
+                                }
+                            }
+
+                            tempPos = pduDataStream.available();
+                            lastLen = length - (startPos - tempPos);
                         }
                         break;
                     default:

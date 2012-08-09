@@ -35,18 +35,19 @@ public abstract class ContentObserver {
     private final class NotificationRunnable implements Runnable {
 
         private boolean mSelf;
-        private Uri mUri = null;
+	private Uri mUri = null;
 
         public NotificationRunnable(boolean self) {
             mSelf = self;
         }
+
 
         public NotificationRunnable(Uri uri, boolean self) {
             mSelf = self;
             mUri = uri;
         }
 
-        public void run() {
+        public void run() { 
             if (mUri != null) {
                 ContentObserver.this.onChangeUri(mUri, mSelf);
             } else {
@@ -70,17 +71,17 @@ public abstract class ContentObserver {
             return false;
         }
 
-        public void onChange(boolean selfChange) {
-            ContentObserver contentObserver = mContentObserver;
-            if (contentObserver != null) {
-                contentObserver.dispatchChange(selfChange);
-            }
-        }
-
         public void onChangeUri(Uri uri, boolean selfChange) {
             ContentObserver contentObserver = mContentObserver;
             if (contentObserver != null) {
                 contentObserver.dispatchChange(uri, selfChange);
+            }
+        }
+
+        public void onChange(boolean selfChange) {
+            ContentObserver contentObserver = mContentObserver;
+            if (contentObserver != null) {
+                contentObserver.dispatchChange(selfChange);
             }
         }
 
@@ -156,6 +157,7 @@ public abstract class ContentObserver {
             mHandler.post(new NotificationRunnable(selfChange));
         }
     }
+
 
     /** @hide */
     public final void dispatchChange(Uri uri, boolean selfChange) {

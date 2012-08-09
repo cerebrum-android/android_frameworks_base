@@ -33,7 +33,7 @@ import android.util.AttributeSet;
  * <p>
  * The simplest way to create a frame-by-frame animation is to define the animation in an XML
  * file, placed in the res/drawable/ folder, and set it as the background to a View object. Then, call
- * {@link #run()} to start the animation.
+ * {@link #start()} to run the animation.
  * <p>
  * An AnimationDrawable defined in XML consists of a single <code>&lt;animation-list></code> element,
  * and a series of nested <code>&lt;item></code> tags. Each item defines a frame of the animation.
@@ -62,10 +62,15 @@ import android.util.AttributeSet;
  * AnimationDrawable frameAnimation = (AnimationDrawable) img.getBackground();
  *
  * // Start the animation (looped playback by default).
- * frameAnimation.start()
+ * frameAnimation.start();
  * </pre>
- * <p>For more information, see the guide to <a
- * href="{@docRoot}guide/topics/resources/animation-resource.html">Animation Resources</a>.</p>
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about animating with {@code AnimationDrawable}, read the
+ * <a href="{@docRoot}guide/topics/graphics/drawable-animation.html">Drawable Animation</a>
+ * developer guide.</p>
+ * </div>
  *
  * @attr ref android.R.styleable#AnimationDrawable_visible
  * @attr ref android.R.styleable#AnimationDrawable_variablePadding
@@ -97,7 +102,12 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
 
     /**
      * <p>Starts the animation, looping if necessary. This method has no effect
-     * if the animation is running.</p>
+     * if the animation is running. Do not call this in the {@link android.app.Activity#onCreate}
+     * method of your activity, because the {@link android.graphics.drawable.AnimationDrawable} is
+     * not yet fully attached to the window. If you want to play
+     * the animation immediately, without requiring interaction, then you might want to call it
+     * from the {@link android.app.Activity#onWindowFocusChanged} method in your activity,
+     * which will get called when Android brings your window into focus.</p>
      *
      * @see #isRunning()
      * @see #stop()
@@ -192,6 +202,9 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
      */
     public void addFrame(Drawable frame, int duration) {
         mAnimationState.addFrame(frame, duration);
+        if (mCurFrame < 0) {
+            setFrame(0, true, false);
+        }
     }
     
     private void nextFrame(boolean unschedule) {

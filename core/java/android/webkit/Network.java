@@ -16,9 +16,12 @@
 
 package android.webkit;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.net.WebAddress;
-import android.net.ParseException;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.http.*;
 import android.os.*;
 import android.util.Log;
@@ -70,13 +73,26 @@ class Network {
      * SSL error handler: takes care of synchronization of multiple async
      * loaders with SSL-related problems.
      */
-    private SslErrorHandler mSslErrorHandler;
+    private SslErrorHandlerImpl mSslErrorHandler;
 
     /**
      * HTTP authentication handler: takes care of synchronization of HTTP
      * authentication requests.
      */
-    private HttpAuthHandler mHttpAuthHandler;
+    private HttpAuthHandlerImpl mHttpAuthHandler;
+
+    private Context mContext;
+
+    /**
+     * True if the currently used network connection is a roaming phone
+     * connection.
+     */
+    private boolean mRoaming;
+
+    /**
+     * Tracks if we are roaming.
+     */
+    private RoamingMonitor mRoamingMonitor;
 
     /**
      * @return The singleton instance of the network.
@@ -109,6 +125,7 @@ class Network {
         if (++sPlatformNotificationEnableRefCount == 1) {
             if (sNetwork != null) {
                 sNetwork.mRequestQueue.enablePlatformNotifications();
+                sNetwork.monitorRoaming();
             } else {
                 sPlatformNotifications = true;
             }
@@ -123,6 +140,7 @@ class Network {
         if (--sPlatformNotificationEnableRefCount == 0) {
             if (sNetwork != null) {
                 sNetwork.mRequestQueue.disablePlatformNotifications();
+                sNetwork.stopMonitoringRoaming();
             } else {
                 sPlatformNotifications = false;
             }
@@ -138,29 +156,37 @@ class Network {
             Assert.assertTrue(Thread.currentThread().
                     getName().equals(WebViewCore.THREAD_NAME));
         }
-        mSslErrorHandler = new SslErrorHandler();
-        mHttpAuthHandler = new HttpAuthHandler(this);
+        mContext = context;
+        mSslErrorHandler = new SslErrorHandlerImpl();
+        mHttpAuthHandler = new HttpAuthHandlerImpl(this);
 
         mRequestQueue = new RequestQueue(context);
     }
 
-    public boolean setPriority(String url, int priority) {
-        WebAddress uri = null;
-        if (URLUtil.isNetworkUrl(url)) {
-            String nurl = URLUtil.stripAnchor(url);
-            try {
-                uri = new WebAddress(nurl);
-            } catch (ParseException e) {
-                e.printStackTrace();
-            }
-        }
-        if (uri != null)
-            return mRequestQueue.setRequestPriority(uri, priority);
-        return false;
+    private class RoamingMonitor extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!ConnectivityManager.CONNECTIVITY_ACTION.equals(intent.getAction()))
+                return;
+
+            NetworkInfo info = (NetworkInfo)intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK_INFO);
+            if (info != null)
+                mRoaming = info.isRoaming();
+        };
+    };
+
+    private void monitorRoaming() {
+        mRoamingMonitor = new RoamingMonitor();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        mContext.registerReceiver(sNetwork.mRoamingMonitor, filter);
     }
 
-    public void commitPriorities() {
-        mRequestQueue.commitRequestPriorities();
+    private void stopMonitoringRoaming() {
+        if (mRoamingMonitor != null) {
+            mContext.unregisterReceiver(mRoamingMonitor);
+            mRoamingMonitor = null;
+        }
     }
 
     /**
@@ -191,6 +217,11 @@ class Network {
             return false;
         }
 
+        // If this is a prefetch, abort it if we're roaming.
+        if (mRoaming && headers.containsKey("X-Moz") && "prefetch".equals(headers.get("X-Moz"))) {
+            return false;
+        }
+
         /* FIXME: this is lame.  Pass an InputStream in, rather than
            making this lame one here */
         InputStream bodyProvider = null;
@@ -210,8 +241,7 @@ class Network {
             loader.loadSynchronousMessages();
         } else {
             handle = q.queueRequest(url, loader.getWebAddress(), method,
-                    headers, loader, bodyProvider, bodyLength,
-                    loader.priority(), loader.shouldCommit());
+                    headers, loader, bodyProvider, bodyLength);
             // FIXME: Although this is probably a rare condition, normal network
             // requests are processed in a separate thread. This means that it
             // is possible to process part of the request before setting the

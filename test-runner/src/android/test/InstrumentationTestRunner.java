@@ -16,8 +16,6 @@
 
 package android.test;
 
-import static android.test.suitebuilder.TestPredicates.REJECT_PERFORMANCE;
-
 import com.android.internal.util.Predicate;
 import com.android.internal.util.Predicates;
 
@@ -56,7 +54,15 @@ import junit.textui.ResultPrinter;
 
 /**
  * An {@link Instrumentation} that runs various types of {@link junit.framework.TestCase}s against
- * an Android package (application). Typical usage:
+ * an Android package (application).
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about application testing, read the
+ * <a href="{@docRoot}guide/topics/testing/index.html">Testing</a> developer guide.</p>
+ * </div>
+ *
+ * <h3>Typical Usage</h3>
  * <ol>
  * <li>Write {@link junit.framework.TestCase}s that perform unit, functional, or performance tests
  * against the classes in your package.  Typically these are subclassed from:
@@ -172,8 +178,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     /** @hide */
     public static final String ARGUMENT_TEST_SIZE_PREDICATE = "size";
     /** @hide */
-    public static final String ARGUMENT_INCLUDE_PERF = "perf";
-    /** @hide */
     public static final String ARGUMENT_DELAY_MSEC = "delay_msec";
 
     private static final String SMALL_SUITE = "small";
@@ -240,6 +244,11 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     private static final String REPORT_KEY_RUN_TIME = "runtime";
     /**
      * If included in the status or final bundle sent to an IInstrumentationWatcher, this key
+     * reports the number of total iterations of the current test.
+     */
+    private static final String REPORT_KEY_NUM_ITERATIONS = "numiterations";
+    /**
+     * If included in the status or final bundle sent to an IInstrumentationWatcher, this key
      * reports the guessed suite assignment for the current test.
      */
     private static final String REPORT_KEY_SUITE_ASSIGNMENT = "suiteassignment";
@@ -278,6 +287,7 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     private static final String LOG_TAG = "InstrumentationTestRunner";
 
     private final Bundle mResults = new Bundle();
+    private Bundle mArguments;
     private AndroidTestRunner mTestRunner;
     private boolean mDebug;
     private boolean mJustCount;
@@ -291,6 +301,7 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        mArguments = arguments;
 
         // Apk paths used to search for test classes when using TestSuiteBuilders.
         String[] apkPaths =
@@ -300,7 +311,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
         Predicate<TestMethod> testSizePredicate = null;
         Predicate<TestMethod> testAnnotationPredicate = null;
         Predicate<TestMethod> testNotAnnotationPredicate = null;
-        boolean includePerformance = false;
         String testClassesArg = null;
         boolean logOnly = false;
 
@@ -318,7 +328,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             testNotAnnotationPredicate = getNotAnnotationPredicate(
                     arguments.getString(ARGUMENT_NOT_ANNOTATION));
 
-            includePerformance = getBooleanArgument(arguments, ARGUMENT_INCLUDE_PERF);
             logOnly = getBooleanArgument(arguments, ARGUMENT_LOG_ONLY);
             mCoverage = getBooleanArgument(arguments, "coverage");
             mCoverageFilePath = arguments.getString("coverageFile");
@@ -342,9 +351,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
         }
         if (testNotAnnotationPredicate != null) {
             testSuiteBuilder.addRequirements(testNotAnnotationPredicate);
-        }
-        if (!includePerformance) {
-            testSuiteBuilder.addRequirements(REJECT_PERFORMANCE);
         }
 
         if (testClassesArg == null) {
@@ -381,6 +387,16 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             mTestRunner.setPerformanceResultsWriter(resultPrinter);
         }
         start();
+    }
+
+    /**
+     * Get the Bundle object that contains the arguments
+     *
+     * @return the Bundle object
+     * @hide
+     */
+    public Bundle getBundle(){
+        return mArguments;
     }
 
     List<Predicate<TestMethod>> getBuilderRequirements() {
@@ -748,6 +764,20 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
                 mTestResult.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "");
             }
 
+            Method testMethod = null;
+            try {
+                testMethod = test.getClass().getMethod(testName);
+                // Report total number of iterations, if test is repetitive
+                if (testMethod.isAnnotationPresent(RepetitiveTest.class)) {
+                    int numIterations = testMethod.getAnnotation(
+                        RepetitiveTest.class).numIterations();
+                    mTestResult.putInt(REPORT_KEY_NUM_ITERATIONS, numIterations);
+                }
+            } catch (NoSuchMethodException e) {
+                // ignore- the test with given name does not exist. Will be handled during test
+                // execution
+            }
+
             // The delay_msec parameter is normally used to provide buffers of idle time
             // for power measurement purposes. To make sure there is a delay before and after
             // every test in a suite, we delay *after* every test (see endTest below) and also
@@ -766,9 +796,9 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             mIncludeDetailedStats = false;
             try {
                 // Look for TimedTest annotation on both test class and test method
-                if (test.getClass().getMethod(testName).isAnnotationPresent(TimedTest.class)) {
+                if (testMethod != null && testMethod.isAnnotationPresent(TimedTest.class)) {
                     mIsTimedTest = true;
-                    mIncludeDetailedStats = test.getClass().getMethod(testName).getAnnotation(
+                    mIncludeDetailedStats = testMethod.getAnnotation(
                             TimedTest.class).includeDetailedStats();
                 } else if (test.getClass().isAnnotationPresent(TimedTest.class)) {
                     mIsTimedTest = true;
@@ -778,9 +808,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             } catch (SecurityException e) {
                 // ignore - the test with given name cannot be accessed. Will be handled during
                 // test execution
-            } catch (NoSuchMethodException e) {
-                // ignore- the test with given name does not exist. Will be handled during test
-                // execution
             }
 
             if (mIsTimedTest && mIncludeDetailedStats) {

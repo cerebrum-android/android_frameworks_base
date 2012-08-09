@@ -16,13 +16,21 @@
 
 package android.view;
 
+import android.app.ActivityManager;
+import android.content.ComponentCallbacks2;
+import android.content.res.CompatibilityInfo;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
+import android.opengl.ManagedEGLContext;
 import android.os.IBinder;
 import android.util.AndroidRuntimeException;
-import android.util.Config;
 import android.util.Log;
-import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.util.HashMap;
 
 final class WindowLeaked extends AndroidRuntimeException {
     public WindowLeaked(String msg) {
@@ -55,15 +63,34 @@ public class WindowManagerImpl implements WindowManager {
      * The user is navigating with keys (not the touch screen), so
      * navigational focus should be shown.
      */
-    public static final int RELAYOUT_IN_TOUCH_MODE = 0x1;
+    public static final int RELAYOUT_RES_IN_TOUCH_MODE = 0x1;
     /**
      * This is the first time the window is being drawn,
      * so the client must call drawingFinished() when done
      */
-    public static final int RELAYOUT_FIRST_TIME = 0x2;
-    
+    public static final int RELAYOUT_RES_FIRST_TIME = 0x2;
+    /**
+     * The window manager has changed the surface from the last call.
+     */
+    public static final int RELAYOUT_RES_SURFACE_CHANGED = 0x4;
+
+    /**
+     * Flag for relayout: the client will be later giving
+     * internal insets; as a result, the window will not impact other window
+     * layouts until the insets are given.
+     */
+    public static final int RELAYOUT_INSETS_PENDING = 0x1;
+
+    /**
+     * Flag for relayout: the client may be currently using the current surface,
+     * so if it is to be destroyed as a part of the relayout the destroy must
+     * be deferred until later.  The client will call performDeferredDestroy()
+     * when it is okay.
+     */
+    public static final int RELAYOUT_DEFER_SURFACE_DESTROY = 0x2;
+
     public static final int ADD_FLAG_APP_VISIBLE = 0x2;
-    public static final int ADD_FLAG_IN_TOUCH_MODE = RELAYOUT_IN_TOUCH_MODE;
+    public static final int ADD_FLAG_IN_TOUCH_MODE = RELAYOUT_RES_IN_TOUCH_MODE;
     
     public static final int ADD_OKAY = 0;
     public static final int ADD_BAD_APP_TOKEN = -1;
@@ -75,30 +102,122 @@ public class WindowManagerImpl implements WindowManager {
     public static final int ADD_MULTIPLE_SINGLETON = -7;
     public static final int ADD_PERMISSION_DENIED = -8;
 
-    public static WindowManagerImpl getDefault()
-    {
-        return mWindowManager;
+    private View[] mViews;
+    private ViewRootImpl[] mRoots;
+    private WindowManager.LayoutParams[] mParams;
+
+    private final static Object sLock = new Object();
+    private final static WindowManagerImpl sWindowManager = new WindowManagerImpl();
+    private final static HashMap<CompatibilityInfo, WindowManager> sCompatWindowManagers
+            = new HashMap<CompatibilityInfo, WindowManager>();
+
+    static class CompatModeWrapper implements WindowManager {
+        private final WindowManagerImpl mWindowManager;
+        private final Display mDefaultDisplay;
+        private final CompatibilityInfoHolder mCompatibilityInfo;
+
+        CompatModeWrapper(WindowManager wm, CompatibilityInfoHolder ci) {
+            mWindowManager = wm instanceof CompatModeWrapper
+                    ? ((CompatModeWrapper)wm).mWindowManager : (WindowManagerImpl)wm;
+
+            // Use the original display if there is no compatibility mode
+            // to apply, or the underlying window manager is already a
+            // compatibility mode wrapper.  (We assume that if it is a
+            // wrapper, it is applying the same compatibility mode.)
+            if (ci == null) {
+                mDefaultDisplay = mWindowManager.getDefaultDisplay();
+            } else {
+                //mDefaultDisplay = mWindowManager.getDefaultDisplay();
+                mDefaultDisplay = Display.createCompatibleDisplay(
+                        mWindowManager.getDefaultDisplay().getDisplayId(), ci);
+            }
+
+            mCompatibilityInfo = ci;
+        }
+
+        @Override
+        public void addView(View view, android.view.ViewGroup.LayoutParams params) {
+            mWindowManager.addView(view, params, mCompatibilityInfo);
+        }
+
+        @Override
+        public void updateViewLayout(View view, android.view.ViewGroup.LayoutParams params) {
+            mWindowManager.updateViewLayout(view, params);
+
+        }
+
+        @Override
+        public void removeView(View view) {
+            mWindowManager.removeView(view);
+        }
+
+        @Override
+        public Display getDefaultDisplay() {
+            return mDefaultDisplay;
+        }
+
+        @Override
+        public void removeViewImmediate(View view) {
+            mWindowManager.removeViewImmediate(view);
+        }
+
+        @Override
+        public boolean isHardwareAccelerated() {
+            return mWindowManager.isHardwareAccelerated();
+        }
+
+    }
+
+    public static WindowManagerImpl getDefault() {
+        return sWindowManager;
+    }
+
+    public static WindowManager getDefault(CompatibilityInfo compatInfo) {
+        CompatibilityInfoHolder cih = new CompatibilityInfoHolder();
+        cih.set(compatInfo);
+        if (cih.getIfNeeded() == null) {
+            return sWindowManager;
+        }
+
+        synchronized (sLock) {
+            // NOTE: It would be cleaner to move the implementation of
+            // WindowManagerImpl into a static inner class, and have this
+            // public impl just call into that.  Then we can make multiple
+            // instances of WindowManagerImpl for compat mode rather than
+            // having to make wrappers.
+            WindowManager wm = sCompatWindowManagers.get(compatInfo);
+            if (wm == null) {
+                wm = new CompatModeWrapper(sWindowManager, cih);
+                sCompatWindowManagers.put(compatInfo, wm);
+            }
+            return wm;
+        }
+    }
+
+    public static WindowManager getDefault(CompatibilityInfoHolder compatInfo) {
+        return new CompatModeWrapper(sWindowManager, compatInfo);
     }
     
-    public void addView(View view)
-    {
+    public boolean isHardwareAccelerated() {
+        return false;
+    }
+    
+    public void addView(View view) {
         addView(view, new WindowManager.LayoutParams(
             WindowManager.LayoutParams.TYPE_APPLICATION, 0, PixelFormat.OPAQUE));
     }
 
-    public void addView(View view, ViewGroup.LayoutParams params)
-    {
-        addView(view, params, false);
+    public void addView(View view, ViewGroup.LayoutParams params) {
+        addView(view, params, null, false);
     }
     
-    public void addViewNesting(View view, ViewGroup.LayoutParams params)
-    {
-        addView(view, params, false);
+    public void addView(View view, ViewGroup.LayoutParams params, CompatibilityInfoHolder cih) {
+        addView(view, params, cih, false);
     }
     
-    private void addView(View view, ViewGroup.LayoutParams params, boolean nest)
-    {
-        if (Config.LOGV) Log.v("WindowManager", "addView view=" + view);
+    private void addView(View view, ViewGroup.LayoutParams params,
+            CompatibilityInfoHolder cih, boolean nest) {
+        if (false) Log.v("WindowManager", "addView view=" + view);
 
         if (!(params instanceof WindowManager.LayoutParams)) {
             throw new IllegalArgumentException(
@@ -108,7 +227,7 @@ public class WindowManagerImpl implements WindowManager {
         final WindowManager.LayoutParams wparams
                 = (WindowManager.LayoutParams)params;
         
-        ViewRoot root;
+        ViewRootImpl root;
         View panelParentView = null;
         
         synchronized (this) {
@@ -145,15 +264,20 @@ public class WindowManagerImpl implements WindowManager {
                 }
             }
             
-            root = new ViewRoot(view.getContext());
+            root = new ViewRootImpl(view.getContext());
             root.mAddNesting = 1;
+            if (cih == null) {
+                root.mCompatibilityInfo = new CompatibilityInfoHolder();
+            } else {
+                root.mCompatibilityInfo = cih;
+            }
 
             view.setLayoutParams(wparams);
             
             if (mViews == null) {
                 index = 1;
                 mViews = new View[1];
-                mRoots = new ViewRoot[1];
+                mRoots = new ViewRootImpl[1];
                 mParams = new WindowManager.LayoutParams[1];
             } else {
                 index = mViews.length + 1;
@@ -161,7 +285,7 @@ public class WindowManagerImpl implements WindowManager {
                 mViews = new View[index];
                 System.arraycopy(old, 0, mViews, 0, index-1);
                 old = mRoots;
-                mRoots = new ViewRoot[index];
+                mRoots = new ViewRootImpl[index];
                 System.arraycopy(old, 0, mRoots, 0, index-1);
                 old = mParams;
                 mParams = new WindowManager.LayoutParams[index];
@@ -189,7 +313,7 @@ public class WindowManagerImpl implements WindowManager {
 
         synchronized (this) {
             int index = findViewLocked(view, true);
-            ViewRoot root = mRoots[index];
+            ViewRootImpl root = mRoots[index];
             mParams[index] = wparams;
             root.setLayoutParams(wparams, false);
         }
@@ -204,14 +328,14 @@ public class WindowManagerImpl implements WindowManager {
             }
             
             throw new IllegalStateException("Calling with view " + view
-                    + " but the ViewRoot is attached to " + curView);
+                    + " but the ViewAncestor is attached to " + curView);
         }
     }
 
     public void removeViewImmediate(View view) {
         synchronized (this) {
             int index = findViewLocked(view, true);
-            ViewRoot root = mRoots[index];
+            ViewRootImpl root = mRoots[index];
             View curView = root.getView();
             
             root.mAddNesting = 0;
@@ -222,12 +346,12 @@ public class WindowManagerImpl implements WindowManager {
             }
             
             throw new IllegalStateException("Calling with view " + view
-                    + " but the ViewRoot is attached to " + curView);
+                    + " but the ViewAncestor is attached to " + curView);
         }
     }
     
     View removeViewLocked(int index) {
-        ViewRoot root = mRoots[index];
+        ViewRootImpl root = mRoots[index];
         View view = root.getView();
         
         // Don't really remove until we have matched all calls to add().
@@ -236,9 +360,11 @@ public class WindowManagerImpl implements WindowManager {
             return view;
         }
 
-        InputMethodManager imm = InputMethodManager.getInstance(view.getContext());
-        if (imm != null) {
-            imm.windowDismissed(mViews[index].getWindowToken());
+        if (view != null) {
+            InputMethodManager imm = InputMethodManager.getInstance(view.getContext());
+            if (imm != null) {
+                imm.windowDismissed(mViews[index].getWindowToken());
+            }
         }
         root.die(false);
         finishRemoveViewLocked(view, index);
@@ -253,7 +379,7 @@ public class WindowManagerImpl implements WindowManager {
         removeItem(tmpViews, mViews, index);
         mViews = tmpViews;
         
-        ViewRoot[] tmpRoots = new ViewRoot[count-1];
+        ViewRootImpl[] tmpRoots = new ViewRootImpl[count-1];
         removeItem(tmpRoots, mRoots, index);
         mRoots = tmpRoots;
         
@@ -262,9 +388,11 @@ public class WindowManagerImpl implements WindowManager {
         removeItem(tmpParams, mParams, index);
         mParams = tmpParams;
 
-        view.assignParent(null);
-        // func doesn't allow null...  does it matter if we clear them?
-        //view.setLayoutParams(null);
+        if (view != null) {
+            view.assignParent(null);
+            // func doesn't allow null...  does it matter if we clear them?
+            //view.setLayoutParams(null);
+        }
     }
 
     public void closeAll(IBinder token, String who, String what) {
@@ -278,7 +406,7 @@ public class WindowManagerImpl implements WindowManager {
                 //Log.i("foo", "@ " + i + " token " + mParams[i].token
                 //        + " view " + mRoots[i].getView());
                 if (token == null || mParams[i].token == token) {
-                    ViewRoot root = mRoots[i];
+                    ViewRootImpl root = mRoots[i];
                     root.mAddNesting = 1;
                     
                     //Log.i("foo", "Force closing " + root);
@@ -289,7 +417,7 @@ public class WindowManagerImpl implements WindowManager {
                         leak.setStackTrace(root.getLocation().getStackTrace());
                         Log.e("WindowManager", leak.getMessage(), leak);
                     }
-                    
+
                     removeViewLocked(i);
                     i--;
                     count--;
@@ -297,16 +425,126 @@ public class WindowManagerImpl implements WindowManager {
             }
         }
     }
+
+    /**
+     * @param level See {@link android.content.ComponentCallbacks}
+     */
+    public void trimMemory(int level) {
+        if (HardwareRenderer.isAvailable()) {
+            switch (level) {
+                case ComponentCallbacks2.TRIM_MEMORY_COMPLETE:
+                case ComponentCallbacks2.TRIM_MEMORY_MODERATE:
+                    // On low and medium end gfx devices
+                    if (!ActivityManager.isHighEndGfx(getDefaultDisplay())) {
+                        // Force a full memory flush
+                        HardwareRenderer.trimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE);
+                        // Destroy all hardware surfaces and resources associated to
+                        // known windows
+                        synchronized (this) {
+                            if (mViews == null) return;
+                            int count = mViews.length;
+                            for (int i = 0; i < count; i++) {
+                                mRoots[i].terminateHardwareResources();
+                            }
+                        }
+                        // Terminate the hardware renderer to free all resources
+                        ManagedEGLContext.doTerminate();
+                        break;
+                    }
+                    // high end gfx devices fall through to next case
+                default:
+                    HardwareRenderer.trimMemory(level);
+            }
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public void trimLocalMemory() {
+        synchronized (this) {
+            if (mViews == null) return;
+            int count = mViews.length;
+            for (int i = 0; i < count; i++) {
+                mRoots[i].destroyHardwareLayers();
+            }
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public void dumpGfxInfo(FileDescriptor fd) {
+        FileOutputStream fout = new FileOutputStream(fd);
+        PrintWriter pw = new PrintWriter(fout);
+        try {
+            synchronized (this) {
+                if (mViews != null) {
+                    pw.println("View hierarchy:");
+
+                    final int count = mViews.length;
+
+                    int viewsCount = 0;
+                    int displayListsSize = 0;
+                    int[] info = new int[2];
+
+                    for (int i = 0; i < count; i++) {
+                        ViewRootImpl root = mRoots[i];
+                        root.dumpGfxInfo(pw, info);
+
+                        String name = root.getClass().getName() + '@' +
+                                Integer.toHexString(hashCode());                        
+                        pw.printf("  %s: %d views, %.2f kB (display lists)\n",
+                                name, info[0], info[1] / 1024.0f);
+
+                        viewsCount += info[0];
+                        displayListsSize += info[1];
+                    }
+
+                    pw.printf("\nTotal ViewRootImpl: %d\n", count);
+                    pw.printf("Total Views:        %d\n", viewsCount);                    
+                    pw.printf("Total DisplayList:  %.2f kB\n\n", displayListsSize / 1024.0f);                    
+                }
+            }
+        } finally {
+            pw.flush();
+        }        
+    }
+
+    public void setStoppedState(IBinder token, boolean stopped) {
+        synchronized (this) {
+            if (mViews == null)
+                return;
+            int count = mViews.length;
+            for (int i=0; i<count; i++) {
+                if (token == null || mParams[i].token == token) {
+                    ViewRootImpl root = mRoots[i];
+                    root.setStopped(stopped);
+                }
+            }
+        }
+    }
     
+    public void reportNewConfiguration(Configuration config) {
+        synchronized (this) {
+            int count = mViews.length;
+            config = new Configuration(config);
+            for (int i=0; i<count; i++) {
+                ViewRootImpl root = mRoots[i];
+                root.requestUpdateConfiguration(config);
+            }
+        }
+    }
+
     public WindowManager.LayoutParams getRootViewLayoutParameter(View view) {
         ViewParent vp = view.getParent();
-        while (vp != null && !(vp instanceof ViewRoot)) {
+        while (vp != null && !(vp instanceof ViewRootImpl)) {
             vp = vp.getParent();
         }
         
         if (vp == null) return null;
         
-        ViewRoot vr = (ViewRoot)vp;
+        ViewRootImpl vr = (ViewRootImpl)vp;
         
         int N = mRoots.length;
         for (int i = 0; i < N; ++i) {
@@ -323,15 +561,10 @@ public class WindowManagerImpl implements WindowManager {
     }
     
     public Display getDefaultDisplay() {
-        return new Display(Display.DEFAULT_DISPLAY);
+        return new Display(Display.DEFAULT_DISPLAY, null);
     }
 
-    private View[] mViews;
-    private ViewRoot[] mRoots;
-    private WindowManager.LayoutParams[] mParams;
-
-    private static void removeItem(Object[] dst, Object[] src, int index)
-    {
+    private static void removeItem(Object[] dst, Object[] src, int index) {
         if (dst.length > 0) {
             if (index > 0) {
                 System.arraycopy(src, 0, dst, 0, index);
@@ -342,8 +575,7 @@ public class WindowManagerImpl implements WindowManager {
         }
     }
 
-    private int findViewLocked(View view, boolean required)
-    {
+    private int findViewLocked(View view, boolean required) {
         synchronized (this) {
             final int count = mViews != null ? mViews.length : 0;
             for (int i=0; i<count; i++) {
@@ -358,6 +590,4 @@ public class WindowManagerImpl implements WindowManager {
             return -1;
         }
     }
-
-    private static WindowManagerImpl mWindowManager = new WindowManagerImpl();
 }

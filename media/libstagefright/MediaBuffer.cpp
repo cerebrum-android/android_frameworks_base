@@ -21,19 +21,15 @@
 #include <pthread.h>
 #include <stdlib.h>
 
+#include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaDebug.h>
 #include <media/stagefright/MetaData.h>
 
+#include <ui/GraphicBuffer.h>
+#include <sys/atomics.h>
+
 namespace android {
-
-// XXX make this truly atomic.
-static int atomic_add(int *value, int delta) {
-    int prev_value = *value;
-    *value += delta;
-
-    return prev_value;
-}
 
 MediaBuffer::MediaBuffer(void *data, size_t size)
     : mObserver(NULL),
@@ -61,6 +57,34 @@ MediaBuffer::MediaBuffer(size_t size)
       mOriginal(NULL) {
 }
 
+MediaBuffer::MediaBuffer(const sp<GraphicBuffer>& graphicBuffer)
+    : mObserver(NULL),
+      mNextBuffer(NULL),
+      mRefCount(0),
+      mData(NULL),
+      mSize(1),
+      mRangeOffset(0),
+      mRangeLength(mSize),
+      mGraphicBuffer(graphicBuffer),
+      mOwnsData(false),
+      mMetaData(new MetaData),
+      mOriginal(NULL) {
+}
+
+MediaBuffer::MediaBuffer(const sp<ABuffer> &buffer)
+    : mObserver(NULL),
+      mNextBuffer(NULL),
+      mRefCount(0),
+      mData(buffer->data()),
+      mSize(buffer->size()),
+      mRangeOffset(0),
+      mRangeLength(mSize),
+      mBuffer(buffer),
+      mOwnsData(false),
+      mMetaData(new MetaData),
+      mOriginal(NULL) {
+}
+
 void MediaBuffer::release() {
     if (mObserver == NULL) {
         CHECK_EQ(mRefCount, 0);
@@ -68,7 +92,7 @@ void MediaBuffer::release() {
         return;
     }
 
-    int prevCount = atomic_add(&mRefCount, -1);
+    int prevCount = __atomic_dec(&mRefCount);
     if (prevCount == 1) {
         if (mObserver == NULL) {
             delete this;
@@ -88,18 +112,16 @@ void MediaBuffer::claim() {
 }
 
 void MediaBuffer::add_ref() {
-    atomic_add(&mRefCount, 1);
-}
-
-void MediaBuffer::setData(void *data) {
-    mData = data;
+    (void) __atomic_inc(&mRefCount);
 }
 
 void *MediaBuffer::data() const {
+    CHECK(mGraphicBuffer == NULL);
     return mData;
 }
 
 size_t MediaBuffer::size() const {
+    CHECK(mGraphicBuffer == NULL);
     return mSize;
 }
 
@@ -112,28 +134,17 @@ size_t MediaBuffer::range_length() const {
 }
 
 void MediaBuffer::set_range(size_t offset, size_t length) {
-#ifdef OMAP_ENHANCEMENT
-    if(offset) {
-        if (offset + length > mSize) {
-            LOGE("offset = %d, length = %d, mSize = %d", offset, length, mSize);
-        }
-        CHECK(offset + length <= mSize);
-    }
-    else {
-        if (length > mSize) {
-            LOGE("offset = %d, length = %d, mSize = %d", offset, length, mSize);
-            length = mSize;
-        }
-    }
-#else
-    if (offset + length > mSize) {
+    if ((mGraphicBuffer == NULL) && (offset + length > mSize)) {
         LOGE("offset = %d, length = %d, mSize = %d", offset, length, mSize);
     }
-    CHECK(offset + length <= mSize);
-#endif
+    CHECK((mGraphicBuffer != NULL) || (offset + length <= mSize));
 
     mRangeOffset = offset;
     mRangeLength = length;
+}
+
+sp<GraphicBuffer> MediaBuffer::graphicBuffer() const {
+    return mGraphicBuffer;
 }
 
 sp<MetaData> MediaBuffer::meta_data() {
@@ -177,6 +188,8 @@ int MediaBuffer::refcount() const {
 }
 
 MediaBuffer *MediaBuffer::clone() {
+    CHECK_EQ(mGraphicBuffer, NULL);
+
     MediaBuffer *buffer = new MediaBuffer(mData, mSize);
     buffer->set_range(mRangeOffset, mRangeLength);
     buffer->mMetaData = new MetaData(*mMetaData.get());
@@ -188,4 +201,3 @@ MediaBuffer *MediaBuffer::clone() {
 }
 
 }  // namespace android
-

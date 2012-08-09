@@ -26,35 +26,6 @@ namespace android {
 struct OMXMaster;
 class OMXNodeInstance;
 
-// data structures for tunneling buffers
-typedef struct PLATFORM_PRIVATE_PMEM_INFO
-{
-    /* pmem file descriptor */
-    size_t pmem_fd;
-    size_t offset;
-} PLATFORM_PRIVATE_PMEM_INFO;
-
-typedef struct PLATFORM_PRIVATE_ENTRY
-{
-    /* Entry type */
-    size_t type;
-
-    /* Pointer to platform specific entry */
-    void* entry;
-} PLATFORM_PRIVATE_ENTRY;
-
-typedef struct PLATFORM_PRIVATE_LIST
-{
-    /* Number of entries */
-    size_t nEntries;
-
-    /* Pointer to array of platform specific entries *
-     * Contiguous block of PLATFORM_PRIVATE_ENTRY elements */
-    PLATFORM_PRIVATE_ENTRY* entryList;
-} PLATFORM_PRIVATE_LIST;
-
-#define PLATFORM_PRIVATE_PMEM 1
-
 class OMX : public BnOMX,
             public IBinder::DeathRecipient {
 public:
@@ -88,15 +59,25 @@ public:
             node_id node, OMX_INDEXTYPE index,
             const void *params, size_t size);
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    virtual status_t useBuffer(
-            node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer, size_t size);
-#endif
+    virtual status_t getState(
+            node_id node, OMX_STATETYPE* state);
+
+    virtual status_t enableGraphicBuffers(
+            node_id node, OMX_U32 port_index, OMX_BOOL enable);
+
+    virtual status_t getGraphicBufferUsage(
+            node_id node, OMX_U32 port_index, OMX_U32* usage);
+
+    virtual status_t storeMetaDataInBuffers(
+            node_id node, OMX_U32 port_index, OMX_BOOL enable);
 
     virtual status_t useBuffer(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
             buffer_id *buffer);
+
+    virtual status_t useGraphicBuffer(
+            node_id node, OMX_U32 port_index,
+            const sp<GraphicBuffer> &graphicBuffer, buffer_id *buffer);
 
     virtual status_t allocateBuffer(
             node_id node, OMX_U32 port_index, size_t size,
@@ -122,24 +103,6 @@ public:
             const char *parameter_name,
             OMX_INDEXTYPE *index);
 
-    virtual sp<IOMXRenderer> createRenderer(
-            const sp<ISurface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight,
-            int32_t rotationDegrees);
-#ifdef OMAP_ENHANCEMENT
-    virtual sp<IOMXRenderer> createRenderer(
-            const sp<ISurface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight,
-            int32_t rotationDegrees,
-            int isS3D, int numOfOpBuffers);
-#endif
-
     virtual void binderDied(const wp<IBinder> &the_late_who);
 
     OMX_ERRORTYPE OnEvent(
@@ -161,6 +124,7 @@ protected:
     virtual ~OMX();
 
 private:
+    struct CallbackDispatcherThread;
     struct CallbackDispatcher;
 
     Mutex mLock;

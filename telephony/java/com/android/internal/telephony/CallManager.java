@@ -100,7 +100,6 @@ public final class CallManager {
     // default phone as the first phone registered, which is PhoneBase obj
     private Phone mDefaultPhone;
 
-    private boolean acceptingRingingCall;
     // state registrants
     protected final RegistrantList mPreciseCallStateRegistrants
     = new RegistrantList();
@@ -171,7 +170,6 @@ public final class CallManager {
         mBackgroundCalls = new ArrayList<Call>();
         mForegroundCalls = new ArrayList<Call>();
         mDefaultPhone = null;
-        acceptingRingingCall = false;
     }
 
     /**
@@ -378,26 +376,22 @@ public final class CallManager {
         int mode = AudioManager.MODE_NORMAL;
         switch (getState()) {
             case RINGING:
-                if (acceptingRingingCall) {
-                  mode = AudioManager.MODE_IN_CALL;
-                  acceptingRingingCall = false;
-                } else {
-                  mode = AudioManager.MODE_RINGTONE;
-                }
+                mode = AudioManager.MODE_RINGTONE;
                 break;
             case OFFHOOK:
-                Phone fgPhone = getFgPhone();
-                // While foreground call is in DIALING,
-                // ALERTING, ACTIVE and DISCONNECTING state
-                if (getActiveFgCallState() != Call.State.IDLE
-                        && getActiveFgCallState() != Call.State.DISCONNECTED) {
-                    if (fgPhone instanceof SipPhone) {
-                        // enable IN_COMMUNICATION audio mode for sipPhone
-                        mode = AudioManager.MODE_IN_COMMUNICATION;
-                    } else {
-                        // enable IN_CALL audio mode for telephony
-                        mode = AudioManager.MODE_IN_CALL;
-                    }
+                Phone offhookPhone = getFgPhone();
+                if (getActiveFgCallState() == Call.State.IDLE) {
+                    // There is no active Fg calls, the OFFHOOK state
+                    // is set by the Bg call. So set the phone to bgPhone.
+                    offhookPhone = getBgPhone();
+                }
+
+                if (offhookPhone instanceof SipPhone) {
+                    // enable IN_COMMUNICATION audio mode for sipPhone
+                    mode = AudioManager.MODE_IN_COMMUNICATION;
+                } else {
+                    // enable IN_CALL audio mode for telephony
+                    mode = AudioManager.MODE_IN_CALL;
                 }
                 break;
         }
@@ -517,7 +511,6 @@ public final class CallManager {
         }
 
         ringingPhone.acceptCall();
-        acceptingRingingCall = true;
 
         if (VDBG) {
             Log.d(LOG_TAG, "End acceptCall(" +ringingCall + ")");
@@ -782,13 +775,23 @@ public final class CallManager {
         boolean allLinesTaken = hasActiveCall && hasHoldingCall;
         Call.State fgCallState = getActiveFgCallState();
 
-        return (serviceState != ServiceState.STATE_POWER_OFF
+        boolean result = (serviceState != ServiceState.STATE_POWER_OFF
                 && !hasRingingCall
                 && !allLinesTaken
                 && ((fgCallState == Call.State.ACTIVE)
                     || (fgCallState == Call.State.IDLE)
                     || (fgCallState == Call.State.DISCONNECTED)));
-            }
+
+        if (result == false) {
+            Log.d(LOG_TAG, "canDial serviceState=" + serviceState
+                            + " hasRingingCall=" + hasRingingCall
+                            + " hasActiveCall=" + hasActiveCall
+                            + " hasHoldingCall=" + hasHoldingCall
+                            + " allLinesTaken=" + allLinesTaken
+                            + " fgCallState=" + fgCallState);
+        }
+        return result;
+    }
 
     /**
      * Whether or not the phone can do explicit call transfer in the current
@@ -1801,33 +1804,33 @@ public final class CallManager {
         Call call;
         StringBuilder b = new StringBuilder();
 
-        b.append("########### Dump CallManager ############");
-        b.append("\nCallManager state = " + getState());
+        b.append("CallManager {");
+        b.append("\nstate = " + getState());
         call = getActiveFgCall();
-        b.append("\n   - Foreground: " + getActiveFgCallState());
+        b.append("\n- Foreground: " + getActiveFgCallState());
         b.append(" from " + call.getPhone());
-        b.append("\n     Conn: ").append(getFgCallConnections());
+        b.append("\n  Conn: ").append(getFgCallConnections());
         call = getFirstActiveBgCall();
-        b.append("\n   - Background: " + call.getState());
+        b.append("\n- Background: " + call.getState());
         b.append(" from " + call.getPhone());
-        b.append("\n     Conn: ").append(getBgCallConnections());
+        b.append("\n  Conn: ").append(getBgCallConnections());
         call = getFirstActiveRingingCall();
-        b.append("\n   - Ringing: " +call.getState());
+        b.append("\n- Ringing: " +call.getState());
         b.append(" from " + call.getPhone());
 
         for (Phone phone : getAllPhones()) {
             if (phone != null) {
-                b.append("\n Phone: " + phone + ", name = " + phone.getPhoneName()
+                b.append("\nPhone: " + phone + ", name = " + phone.getPhoneName()
                         + ", state = " + phone.getState());
                 call = phone.getForegroundCall();
-                b.append("\n   - Foreground: ").append(call);
+                b.append("\n- Foreground: ").append(call);
                 call = phone.getBackgroundCall();
                 b.append(" Background: ").append(call);
                 call = phone.getRingingCall();
                 b.append(" Ringing: ").append(call);
             }
         }
-        b.append("\n########## End Dump CallManager ##########");
+        b.append("\n}");
         return b.toString();
     }
 }

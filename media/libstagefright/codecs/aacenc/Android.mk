@@ -2,7 +2,7 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 include frameworks/base/media/libstagefright/codecs/common/Config.mk
 
-LOCAL_PRELINK_MODULE := false
+
 
 LOCAL_SRC_FILES := basic_op/basicop2.c basic_op/oper_32b.c
 
@@ -59,7 +59,7 @@ LOCAL_MODULE := libstagefright_aacenc
 
 LOCAL_ARM_MODE := arm
 
-LOCAL_STATIC_LIBRARIES :=
+LOCAL_STATIC_LIBRARIES := 
 
 LOCAL_SHARED_LIBRARIES :=
 

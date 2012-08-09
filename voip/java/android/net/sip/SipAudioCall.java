@@ -26,6 +26,7 @@ import android.net.sip.SimpleSessionDescription.Media;
 import android.net.wifi.WifiManager;
 import android.os.Message;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.io.IOException;
@@ -43,19 +44,27 @@ import java.util.Map;
  *
  * <p class="note"><strong>Note:</strong> Using this class require the
  *   {@link android.Manifest.permission#INTERNET} and
- *   {@link android.Manifest.permission#USE_SIP} permissions.<br/><br/>In addition, {@link
+ *   {@link android.Manifest.permission#USE_SIP} permissions. In addition, {@link
  *   #startAudio} requires the
  *   {@link android.Manifest.permission#RECORD_AUDIO},
  *   {@link android.Manifest.permission#ACCESS_WIFI_STATE}, and
  *   {@link android.Manifest.permission#WAKE_LOCK} permissions; and {@link #setSpeakerMode
  *   setSpeakerMode()} requires the
  *   {@link android.Manifest.permission#MODIFY_AUDIO_SETTINGS} permission.</p>
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using SIP, read the
+ * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
+ * developer guide.</p>
+ * </div>
  */
 public class SipAudioCall {
     private static final String TAG = SipAudioCall.class.getSimpleName();
     private static final boolean RELEASE_SOCKET = true;
     private static final boolean DONT_RELEASE_SOCKET = false;
     private static final int SESSION_TIMEOUT = 5; // in seconds
+    private static final int TRANSFER_TIMEOUT = 15; // in seconds
 
     /** Listener for events relating to a SIP call, such as when a call is being
      * recieved ("on ringing") or a call is outgoing ("on calling").
@@ -170,6 +179,7 @@ public class SipAudioCall {
     private SipProfile mLocalProfile;
     private SipAudioCall.Listener mListener;
     private SipSession mSipSession;
+    private SipSession mTransferringSession;
 
     private long mSessionId = System.currentTimeMillis();
     private String mPeerSd;
@@ -347,6 +357,27 @@ public class SipAudioCall {
         }
     }
 
+    private synchronized void transferToNewSession() {
+        if (mTransferringSession == null) return;
+        SipSession origin = mSipSession;
+        mSipSession = mTransferringSession;
+        mTransferringSession = null;
+
+        // stop the replaced call.
+        if (mAudioStream != null) {
+            mAudioStream.join(null);
+        } else {
+            try {
+                mAudioStream = new AudioStream(InetAddress.getByName(
+                        getLocalIp()));
+            } catch (Throwable t) {
+                Log.i(TAG, "transferToNewSession(): " + t);
+            }
+        }
+        if (origin != null) origin.endCall();
+        startAudio();
+    }
+
     private SipSession.Listener createListener() {
         return new SipSession.Listener() {
             @Override
@@ -378,6 +409,7 @@ public class SipAudioCall {
             @Override
             public void onRinging(SipSession session,
                     SipProfile peerProfile, String sessionDescription) {
+                // this callback is triggered only for reinvite.
                 synchronized (SipAudioCall.this) {
                     if ((mSipSession == null) || !mInCall
                             || !session.getCallId().equals(
@@ -404,6 +436,13 @@ public class SipAudioCall {
                 mPeerSd = sessionDescription;
                 Log.v(TAG, "onCallEstablished()" + mPeerSd);
 
+                // TODO: how to notify the UI that the remote party is changed
+                if ((mTransferringSession != null)
+                        && (session == mTransferringSession)) {
+                    transferToNewSession();
+                    return;
+                }
+
                 Listener listener = mListener;
                 if (listener != null) {
                     try {
@@ -420,7 +459,17 @@ public class SipAudioCall {
 
             @Override
             public void onCallEnded(SipSession session) {
-                Log.d(TAG, "sip call ended: " + session);
+                Log.d(TAG, "sip call ended: " + session + " mSipSession:" + mSipSession);
+                // reset the trasnferring session if it is the one.
+                if (session == mTransferringSession) {
+                    mTransferringSession = null;
+                    return;
+                }
+                // or ignore the event if the original session is being
+                // transferred to the new one.
+                if ((mTransferringSession != null) ||
+                    (session != mSipSession)) return;
+
                 Listener listener = mListener;
                 if (listener != null) {
                     try {
@@ -488,6 +537,26 @@ public class SipAudioCall {
             @Override
             public void onRegistrationDone(SipSession session, int duration) {
                 // irrelevant
+            }
+
+            @Override
+            public void onCallTransferring(SipSession newSession,
+                    String sessionDescription) {
+                Log.v(TAG, "onCallTransferring mSipSession:"
+                        + mSipSession + " newSession:" + newSession);
+                mTransferringSession = newSession;
+                try {
+                    if (sessionDescription == null) {
+                        newSession.makeCall(newSession.getPeerProfile(),
+                                createOffer().encode(), TRANSFER_TIMEOUT);
+                    } else {
+                        String answer = createAnswer(sessionDescription).encode();
+                        newSession.answerCall(answer, SESSION_TIMEOUT);
+                    }
+                } catch (Throwable e) {
+                    Log.e(TAG, "onCallTransferring()", e);
+                    newSession.endCall();
+                }
             }
         };
     }
@@ -675,6 +744,7 @@ public class SipAudioCall {
     }
 
     private SimpleSessionDescription createAnswer(String offerSd) {
+        if (TextUtils.isEmpty(offerSd)) return createOffer();
         SimpleSessionDescription offer =
                 new SimpleSessionDescription(offerSd);
         SimpleSessionDescription answer =
@@ -996,16 +1066,6 @@ public class SipAudioCall {
         }
 
         if (isWifiOn()) grabWifiHighPerfLock();
-
-        if (!mHold) {
-            /* The recorder volume will be very low if the device is in
-             * IN_CALL mode. Therefore, we have to set the mode to NORMAL
-             * in order to have the normal microphone level.
-             */
-            ((AudioManager) mContext.getSystemService
-                    (Context.AUDIO_SERVICE))
-                    .setMode(AudioManager.MODE_NORMAL);
-        }
 
         // AudioGroup logic:
         AudioGroup audioGroup = getAudioGroup();

@@ -2,7 +2,6 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
-        MP3Decoder.cpp \
 	src/pvmp3_normalize.cpp \
  	src/pvmp3_alias_reduction.cpp \
  	src/pvmp3_crc.cpp \
@@ -48,15 +47,35 @@ LOCAL_C_INCLUDES := \
         $(LOCAL_PATH)/src \
         $(LOCAL_PATH)/include
 
-ifeq ($(OMAP_ENHANCEMENT),true)
-    LOCAL_C_INCLUDES += hardware/ti/omx/ducati/domx/system/omx_core/inc/
-endif
-
-
 LOCAL_CFLAGS := \
         -DOSCL_UNUSED_ARG=
 
 LOCAL_MODULE := libstagefright_mp3dec
 
+LOCAL_ARM_MODE := arm
+
 include $(BUILD_STATIC_LIBRARY)
 
+################################################################################
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := \
+        SoftMP3.cpp
+
+LOCAL_C_INCLUDES := \
+        frameworks/base/media/libstagefright/include \
+        frameworks/base/include/media/stagefright/openmax \
+        $(LOCAL_PATH)/src \
+        $(LOCAL_PATH)/include
+
+LOCAL_SHARED_LIBRARIES := \
+        libstagefright libstagefright_omx libstagefright_foundation libutils
+
+LOCAL_STATIC_LIBRARIES := \
+        libstagefright_mp3dec
+
+LOCAL_MODULE := libstagefright_soft_mp3dec
+LOCAL_MODULE_TAGS := optional
+
+include $(BUILD_SHARED_LIBRARY)

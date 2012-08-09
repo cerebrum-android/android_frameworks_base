@@ -14,6 +14,7 @@ import android.os.ServiceManager;
 import android.os.storage.IMountService;
 import android.os.storage.StorageEventListener;
 import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.Toast;
@@ -32,6 +33,9 @@ public class ExternalStorageFormatter extends Service
 
     public static final String EXTRA_ALWAYS_RESET = "always_reset";
 
+    // If non-null, the volume to format. Otherwise, will use the default external storage directory
+    private StorageVolume mStorageVolume;
+
     public static final ComponentName COMPONENT_NAME
             = new ComponentName("android", ExternalStorageFormatter.class.getName());
 
@@ -46,8 +50,6 @@ public class ExternalStorageFormatter extends Service
 
     private boolean mFactoryReset = false;
     private boolean mAlwaysReset = false;
-
-    private String extStoragePath;
 
     StorageEventListener mStorageListener = new StorageEventListener() {
         @Override
@@ -75,19 +77,14 @@ public class ExternalStorageFormatter extends Service
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // We get the path from the intent and if it isn't set
-        // we do not default to Environment.getExternalStoragePath()
-        // because this can be the wrong sdcard in the case where
-        // the device has more than one sdcard (as is becoming more
-        // and more common). We will handle the null later when we
-        // try to actually use the extStoragePath.
-        extStoragePath = intent.getStringExtra("path");
         if (FORMAT_AND_FACTORY_RESET.equals(intent.getAction())) {
             mFactoryReset = true;
         }
         if (intent.getBooleanExtra(EXTRA_ALWAYS_RESET, false)) {
             mAlwaysReset = true;
         }
+
+        mStorageVolume = intent.getParcelableExtra(StorageVolume.EXTRA_STORAGE_VOLUME);
 
         if (mProgressDialog == null) {
             mProgressDialog = new ProgressDialog(this);
@@ -124,12 +121,10 @@ public class ExternalStorageFormatter extends Service
     @Override
     public void onCancel(DialogInterface dialog) {
         IMountService mountService = getMountService();
+        String extStoragePath = mStorageVolume == null ?
+                Environment.getExternalStorageDirectory().toString() :
+                mStorageVolume.getPath();
         try {
-            if (extStoragePath == null) {
-                Toast.makeText(this, "Invalid path: null", Toast.LENGTH_LONG).show();
-                stopSelf();
-                return;
-            }
             mountService.mountVolume(extStoragePath);
         } catch (RemoteException e) {
             Log.w(TAG, "Failed talking with mount service", e);
@@ -146,23 +141,19 @@ public class ExternalStorageFormatter extends Service
     }
 
     void updateProgressState() {
-        String status = Environment.MEDIA_CHECKING;
-        try {
-            if (extStoragePath == null) {
-                Toast.makeText(this, "Invalid path: null", Toast.LENGTH_LONG).show();
-                stopSelf();
-                return;
-            }
-            status = getMountService().getVolumeState(extStoragePath);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Failed talking with mount service", e);
-        }
+        String status = mStorageVolume == null ?
+                Environment.getExternalStorageState() :
+                mStorageManager.getVolumeState(mStorageVolume.getPath());
         if (Environment.MEDIA_MOUNTED.equals(status)
                 || Environment.MEDIA_MOUNTED_READ_ONLY.equals(status)) {
             updateProgressDialog(R.string.progress_unmounting);
             IMountService mountService = getMountService();
+            final String extStoragePath = mStorageVolume == null ?
+                    Environment.getExternalStorageDirectory().toString() :
+                    mStorageVolume.getPath();
             try {
-                mountService.unmountVolume(extStoragePath, true);
+                // Remove encryption mapping if this is an unmount for a factory reset.
+                mountService.unmountVolume(extStoragePath, true, mFactoryReset);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed talking with mount service", e);
             }
@@ -171,8 +162,12 @@ public class ExternalStorageFormatter extends Service
                 || Environment.MEDIA_UNMOUNTABLE.equals(status)) {
             updateProgressDialog(R.string.progress_erasing);
             final IMountService mountService = getMountService();
+            final String extStoragePath = mStorageVolume == null ?
+                    Environment.getExternalStorageDirectory().toString() :
+                    mStorageVolume.getPath();
             if (mountService != null) {
                 new Thread() {
+                    @Override
                     public void run() {
                         boolean success = false;
                         try {
@@ -206,7 +201,7 @@ public class ExternalStorageFormatter extends Service
                     }
                 }.start();
             } else {
-                Log.w("MediaFormat", "Unable to locate IMountService");
+                Log.w(TAG, "Unable to locate IMountService");
             }
         } else if (Environment.MEDIA_BAD_REMOVAL.equals(status)) {
             fail(R.string.media_bad_removal);

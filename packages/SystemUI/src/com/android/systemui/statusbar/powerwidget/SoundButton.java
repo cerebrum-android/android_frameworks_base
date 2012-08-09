@@ -10,7 +10,7 @@ import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Vibrator;
-import android.preference.MultiSelectListPreference;
+import android.preference.ListPreferenceMultiSelect;
 import android.provider.Settings;
 import android.view.View;
 
@@ -153,7 +153,7 @@ public class SoundButton extends PowerButton {
             mHapticFeedbackEnabled = (expandedHapticFeedback == 1);
         }
 
-        String[] modes = MultiSelectListPreference.parseStoredValue(Settings.System.getString(
+        String[] modes = ListPreferenceMultiSelect.parseStoredValue(Settings.System.getString(
                 resolver, Settings.System.EXPANDED_RING_MODE));
         if (modes == null || modes.length == 0) {
             mRingerValues = new int[] {
@@ -233,6 +233,13 @@ public class SoundButton extends PowerButton {
             }
 
             Ringer r = (Ringer) o;
+            // Silent mode docs: "Ringer mode that will be silent and will not
+            // vibrate. (This overrides the vibrate setting.)" If silent mode is
+            // set, don't bother checking vibrate since silent overrides. This
+            // fixes cases where silent mode is not detected because of "wrong"
+            // vibrate state.
+            if (mRingerMode == AudioManager.RINGER_MODE_SILENT && (r.mRingerMode == mRingerMode))
+                return true;
             return r.mVibrateInSilent == mVibrateInSilent && r.mVibrateSetting == mVibrateSetting
                     && r.mRingerMode == mRingerMode;
         }

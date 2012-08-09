@@ -20,6 +20,7 @@
 
 #include "APacketSource.h"
 
+#include "ARawAudioAssembler.h"
 #include "ASessionDescription.h"
 
 #include "avc_utils.h"
@@ -33,8 +34,8 @@
 #include <media/stagefright/foundation/AString.h>
 #include <media/stagefright/foundation/base64.h>
 #include <media/stagefright/foundation/hexdump.h>
-#include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaDefs.h>
+#include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
 #include <utils/Vector.h>
 
@@ -328,7 +329,7 @@ static uint8_t *EncodeSize(uint8_t *dst, size_t x) {
     return dst;
 }
 
-static bool ExtractDimensionsFromVOLHeader(
+static bool ExtractDimensionsMPEG4Config(
         const sp<ABuffer> &config, int32_t *width, int32_t *height) {
     *width = 0;
     *height = 0;
@@ -351,77 +352,11 @@ static bool ExtractDimensionsFromVOLHeader(
         return false;
     }
 
-    ABitReader br(&ptr[offset + 4], config->size() - offset - 4);
-    br.skipBits(1);  // random_accessible_vol
-    unsigned video_object_type_indication = br.getBits(8);
-
-    CHECK_NE(video_object_type_indication,
-             0x21u /* Fine Granularity Scalable */);
-
-    unsigned video_object_layer_verid;
-    unsigned video_object_layer_priority;
-    if (br.getBits(1)) {
-        video_object_layer_verid = br.getBits(4);
-        video_object_layer_priority = br.getBits(3);
-    }
-    unsigned aspect_ratio_info = br.getBits(4);
-    if (aspect_ratio_info == 0x0f /* extended PAR */) {
-        br.skipBits(8);  // par_width
-        br.skipBits(8);  // par_height
-    }
-    if (br.getBits(1)) {  // vol_control_parameters
-        br.skipBits(2);  // chroma_format
-        br.skipBits(1);  // low_delay
-        if (br.getBits(1)) {  // vbv_parameters
-            TRESPASS();
-        }
-    }
-    unsigned video_object_layer_shape = br.getBits(2);
-    CHECK_EQ(video_object_layer_shape, 0x00u /* rectangular */);
-
-    CHECK(br.getBits(1));  // marker_bit
-    unsigned vop_time_increment_resolution = br.getBits(16);
-    CHECK(br.getBits(1));  // marker_bit
-
-    if (br.getBits(1)) {  // fixed_vop_rate
-        // range [0..vop_time_increment_resolution)
-
-        // vop_time_increment_resolution
-        // 2 => 0..1, 1 bit
-        // 3 => 0..2, 2 bits
-        // 4 => 0..3, 2 bits
-        // 5 => 0..4, 3 bits
-        // ...
-
-        CHECK_GT(vop_time_increment_resolution, 0u);
-        --vop_time_increment_resolution;
-
-        unsigned numBits = 0;
-        while (vop_time_increment_resolution > 0) {
-            ++numBits;
-            vop_time_increment_resolution >>= 1;
-        }
-
-        br.skipBits(numBits);  // fixed_vop_time_increment
-    }
-
-    CHECK(br.getBits(1));  // marker_bit
-    unsigned video_object_layer_width = br.getBits(13);
-    CHECK(br.getBits(1));  // marker_bit
-    unsigned video_object_layer_height = br.getBits(13);
-    CHECK(br.getBits(1));  // marker_bit
-
-    unsigned interlaced = br.getBits(1);
-
-    *width = video_object_layer_width;
-    *height = video_object_layer_height;
-
-    LOGI("VOL dimensions = %dx%d", *width, *height);
-
-    return true;
+    return ExtractDimensionsFromVOLHeader(
+            &ptr[offset], config->size() - offset, width, height);
 }
 
-sp<ABuffer> MakeMPEG4VideoCodecSpecificData(
+static sp<ABuffer> MakeMPEG4VideoCodecSpecificData(
         const char *params, int32_t *width, int32_t *height) {
     *width = 0;
     *height = 0;
@@ -432,9 +367,11 @@ sp<ABuffer> MakeMPEG4VideoCodecSpecificData(
     sp<ABuffer> config = decodeHex(val);
     CHECK(config != NULL);
 
-    if (!ExtractDimensionsFromVOLHeader(config, width, height)) {
+    if (!ExtractDimensionsMPEG4Config(config, width, height)) {
         return NULL;
     }
+
+    LOGI("VOL dimensions = %dx%d", *width, *height);
 
     size_t len1 = config->size() + GetSizeWidth(config->size()) + 1;
     size_t len2 = len1 + GetSizeWidth(len1) + 1 + 13;
@@ -465,42 +402,14 @@ sp<ABuffer> MakeMPEG4VideoCodecSpecificData(
     return csd;
 }
 
-static bool GetClockRate(const AString &desc, uint32_t *clockRate) {
-    ssize_t slashPos = desc.find("/");
-    if (slashPos < 0) {
-        return false;
-    }
-
-    const char *s = desc.c_str() + slashPos + 1;
-
-    char *end;
-    unsigned long x = strtoul(s, &end, 10);
-
-    if (end == s || (*end != '\0' && *end != '/')) {
-        return false;
-    }
-
-    *clockRate = x;
-
-    return true;
-}
-
 APacketSource::APacketSource(
         const sp<ASessionDescription> &sessionDesc, size_t index)
     : mInitCheck(NO_INIT),
-      mFormat(new MetaData),
-      mEOSResult(OK),
-      mIsAVC(false),
-      mScanForIDR(true),
-      mRTPTimeBase(0),
-      mNormalPlayTimeBaseUs(0),
-      mLastNormalPlayTimeUs(0) {
+      mFormat(new MetaData) {
     unsigned long PT;
     AString desc;
     AString params;
     sessionDesc->getFormatType(index, &PT, &desc, &params);
-
-    CHECK(GetClockRate(desc, &mClockRate));
 
     int64_t durationUs;
     if (sessionDesc->getDurationUs(&durationUs)) {
@@ -511,8 +420,6 @@ APacketSource::APacketSource(
 
     mInitCheck = OK;
     if (!strncmp(desc.c_str(), "H264/", 5)) {
-        mIsAVC = true;
-
         mFormat->setCString(kKeyMIMEType, MEDIA_MIMETYPE_VIDEO_AVC);
 
         int32_t width, height;
@@ -651,6 +558,8 @@ APacketSource::APacketSource(
         mFormat->setData(
                 kKeyESDS, 0,
                 codecSpecificData->data(), codecSpecificData->size());
+    } else if (ARawAudioAssembler::Supports(desc.c_str())) {
+        ARawAudioAssembler::MakeFormat(desc.c_str(), mFormat);
     } else {
         mInitCheck = ERROR_UNSUPPORTED;
     }
@@ -663,139 +572,8 @@ status_t APacketSource::initCheck() const {
     return mInitCheck;
 }
 
-status_t APacketSource::start(MetaData *params) {
-    return OK;
-}
-
-status_t APacketSource::stop() {
-    return OK;
-}
-
 sp<MetaData> APacketSource::getFormat() {
     return mFormat;
-}
-
-status_t APacketSource::read(
-        MediaBuffer **out, const ReadOptions *) {
-    *out = NULL;
-
-    Mutex::Autolock autoLock(mLock);
-    while (mEOSResult == OK && mBuffers.empty()) {
-        mCondition.wait(mLock);
-    }
-
-    if (!mBuffers.empty()) {
-        const sp<ABuffer> buffer = *mBuffers.begin();
-
-        updateNormalPlayTime_l(buffer);
-
-        MediaBuffer *mediaBuffer = new MediaBuffer(buffer->size());
-
-        int64_t timeUs;
-        CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
-
-        mediaBuffer->meta_data()->setInt64(kKeyTime, timeUs);
-
-        memcpy(mediaBuffer->data(), buffer->data(), buffer->size());
-        *out = mediaBuffer;
-
-        mBuffers.erase(mBuffers.begin());
-        return OK;
-    }
-
-    return mEOSResult;
-}
-
-void APacketSource::updateNormalPlayTime_l(const sp<ABuffer> &buffer) {
-    uint32_t rtpTime;
-    CHECK(buffer->meta()->findInt32("rtp-time", (int32_t *)&rtpTime));
-
-    mLastNormalPlayTimeUs =
-        (((double)rtpTime - (double)mRTPTimeBase) / mClockRate)
-            * 1000000ll
-            + mNormalPlayTimeBaseUs;
-}
-
-void APacketSource::queueAccessUnit(const sp<ABuffer> &buffer) {
-    int32_t damaged;
-    if (buffer->meta()->findInt32("damaged", &damaged) && damaged) {
-        LOGV("discarding damaged AU");
-        return;
-    }
-
-    if (mScanForIDR && mIsAVC) {
-        // This pretty piece of code ensures that the first access unit
-        // fed to the decoder after stream-start or seek is guaranteed to
-        // be an IDR frame. This is to workaround limitations of a certain
-        // hardware h.264 decoder that requires this to be the case.
-
-        if (!IsIDR(buffer)) {
-            LOGV("skipping AU while scanning for next IDR frame.");
-            return;
-        }
-
-        mScanForIDR = false;
-    }
-
-    Mutex::Autolock autoLock(mLock);
-    mBuffers.push_back(buffer);
-    mCondition.signal();
-}
-
-void APacketSource::signalEOS(status_t result) {
-    CHECK(result != OK);
-
-    Mutex::Autolock autoLock(mLock);
-    mEOSResult = result;
-    mCondition.signal();
-}
-
-void APacketSource::flushQueue() {
-    Mutex::Autolock autoLock(mLock);
-    mBuffers.clear();
-
-    mScanForIDR = true;
-}
-
-int64_t APacketSource::getNormalPlayTimeUs() {
-    Mutex::Autolock autoLock(mLock);
-    return mLastNormalPlayTimeUs;
-}
-
-void APacketSource::setNormalPlayTimeMapping(
-        uint32_t rtpTime, int64_t normalPlayTimeUs) {
-    Mutex::Autolock autoLock(mLock);
-
-    mRTPTimeBase = rtpTime;
-    mNormalPlayTimeBaseUs = normalPlayTimeUs;
-}
-
-int64_t APacketSource::getQueueDurationUs(bool *eos) {
-    Mutex::Autolock autoLock(mLock);
-
-    *eos = (mEOSResult != OK);
-
-    if (mBuffers.size() < 2) {
-        return 0;
-    }
-
-    const sp<ABuffer> first = *mBuffers.begin();
-    const sp<ABuffer> last = *--mBuffers.end();
-
-    int64_t firstTimeUs;
-    CHECK(first->meta()->findInt64("timeUs", &firstTimeUs));
-
-    int64_t lastTimeUs;
-    CHECK(last->meta()->findInt64("timeUs", &lastTimeUs));
-
-    if (lastTimeUs < firstTimeUs) {
-        LOGE("Huh? Time moving backwards? %lld > %lld",
-             firstTimeUs, lastTimeUs);
-
-        return 0;
-    }
-
-    return lastTimeUs - firstTimeUs;
 }
 
 }  // namespace android

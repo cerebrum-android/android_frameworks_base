@@ -7,32 +7,34 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= 	       \
+	EGL/egl_tls.cpp        \
+	EGL/egl_cache.cpp      \
+	EGL/egl_display.cpp    \
+	EGL/egl_object.cpp     \
 	EGL/egl.cpp 	       \
+	EGL/eglApi.cpp 	       \
+	EGL/trace.cpp              \
 	EGL/getProcAddress.cpp.arm \
-	EGL/hooks.cpp 	       \
 	EGL/Loader.cpp 	       \
 #
 
-LOCAL_SHARED_LIBRARIES += libcutils libutils
+LOCAL_SHARED_LIBRARIES += libcutils libutils libGLESv2_dbg
 LOCAL_LDLIBS := -lpthread -ldl
 LOCAL_MODULE:= libEGL
-
-# needed on sim build because of weird logging issues
-ifeq ($(TARGET_SIMULATOR),true)
-else
-    LOCAL_SHARED_LIBRARIES += libdl
-    # Bionic's private TLS header relies on the ARCH_ARM_HAVE_TLS_REGISTER to
-    # select the appropriate TLS codepath
-    ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
-        LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
-    endif
-    # we need to access the private Bionic header <bionic_tls.h>
-    LOCAL_C_INCLUDES += bionic/libc/private
+LOCAL_LDFLAGS += -Wl,--exclude-libs=ALL
+LOCAL_SHARED_LIBRARIES += libdl
+# Bionic's private TLS header relies on the ARCH_ARM_HAVE_TLS_REGISTER to
+# select the appropriate TLS codepath
+ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
+    LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
 endif
+# we need to access the private Bionic header <bionic_tls.h>
+LOCAL_C_INCLUDES += bionic/libc/private
 
 LOCAL_CFLAGS += -DLOG_TAG=\"libEGL\"
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
 LOCAL_CFLAGS += -fvisibility=hidden
+LOCAL_CFLAGS += -DEGL_TRACE=1
 
 ifeq ($(TARGET_BOARD_PLATFORM),msm7k)
 LOCAL_CFLAGS += -DADRENO130=1
@@ -42,9 +44,16 @@ ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
   LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
 endif
 
+ifneq ($(MAX_EGL_CACHE_ENTRY_SIZE),)
+  LOCAL_CFLAGS += -DMAX_EGL_CACHE_ENTRY_SIZE=$(MAX_EGL_CACHE_ENTRY_SIZE)
+endif
+
+ifneq ($(MAX_EGL_CACHE_SIZE),)
+  LOCAL_CFLAGS += -DMAX_EGL_CACHE_SIZE=$(MAX_EGL_CACHE_SIZE)
+endif
+
 include $(BUILD_SHARED_LIBRARY)
 installed_libEGL := $(LOCAL_INSTALLED_MODULE)
-
 
 # OpenGL drivers config file
 ifneq ($(BOARD_EGL_CFG),)
@@ -76,16 +85,12 @@ LOCAL_SHARED_LIBRARIES += libcutils libEGL
 LOCAL_LDLIBS := -lpthread -ldl
 LOCAL_MODULE:= libGLESv1_CM
 
-# needed on sim build because of weird logging issues
-ifeq ($(TARGET_SIMULATOR),true)
-else
-    LOCAL_SHARED_LIBRARIES += libdl
-    # we need to access the private Bionic header <bionic_tls.h>
-    ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
-        LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
-    endif
-    LOCAL_C_INCLUDES += bionic/libc/private
+LOCAL_SHARED_LIBRARIES += libdl
+# we need to access the private Bionic header <bionic_tls.h>
+ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
+    LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
 endif
+LOCAL_C_INCLUDES += bionic/libc/private
 
 LOCAL_CFLAGS += -DLOG_TAG=\"libGLESv1\"
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
@@ -112,16 +117,12 @@ LOCAL_SHARED_LIBRARIES += libcutils libEGL
 LOCAL_LDLIBS := -lpthread -ldl
 LOCAL_MODULE:= libGLESv2
 
-# needed on sim build because of weird logging issues
-ifeq ($(TARGET_SIMULATOR),true)
-else
-    LOCAL_SHARED_LIBRARIES += libdl
-    # we need to access the private Bionic header <bionic_tls.h>
-    ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
-        LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
-    endif
-    LOCAL_C_INCLUDES += bionic/libc/private
+LOCAL_SHARED_LIBRARIES += libdl
+# we need to access the private Bionic header <bionic_tls.h>
+ifeq ($(ARCH_ARM_HAVE_TLS_REGISTER),true)
+    LOCAL_CFLAGS += -DHAVE_ARM_TLS_REGISTER
 endif
+LOCAL_C_INCLUDES += bionic/libc/private
 
 LOCAL_CFLAGS += -DLOG_TAG=\"libGLESv2\"
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
@@ -162,3 +163,5 @@ LOCAL_LDLIBS := -lpthread -ldl
 LOCAL_MODULE:= libETC1
 
 include $(BUILD_SHARED_LIBRARY)
+
+include $(call all-makefiles-under,$(LOCAL_PATH))

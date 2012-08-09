@@ -225,16 +225,42 @@ typedef EGLBoolean (EGLAPIENTRYP PFNEGLGETSYNCATTRIBNVPROC) (EGLSyncNV sync, EGL
 
 #ifndef EGL_ANDROID_image_native_buffer
 #define EGL_ANDROID_image_native_buffer 1
-struct android_native_buffer_t;
-#define EGL_NATIVE_BUFFER_ANDROID       0x3140  /* eglCreateImageKHR target */
+struct ANativeWindowBuffer;
+#define EGL_NATIVE_BUFFER_ANDROID               0x3140  /* eglCreateImageKHR target */
 #endif
 
-#ifndef EGL_ANDROID_swap_rectangle
-#define EGL_ANDROID_swap_rectangle 1
+#ifndef EGL_ANDROID_recordable
+#define EGL_ANDROID_recordable 1
+#define EGL_RECORDABLE_ANDROID                  0x3142  /* EGLConfig attribute */
+#endif
+
+/* EGL_NV_system_time
+ */
+#ifndef EGL_NV_system_time
+#define EGL_NV_system_time 1
+typedef khronos_int64_t EGLint64NV;
+typedef khronos_uint64_t EGLuint64NV;
 #ifdef EGL_EGLEXT_PROTOTYPES
-EGLAPI EGLBoolean EGLAPIENTRY eglSetSwapRectangleANDROID (EGLDisplay dpy, EGLSurface draw, EGLint left, EGLint top, EGLint width, EGLint height);
+EGLAPI EGLuint64NV EGLAPIENTRY eglGetSystemTimeFrequencyNV(void);
+EGLAPI EGLuint64NV EGLAPIENTRY eglGetSystemTimeNV(void);
+#endif
+typedef EGLuint64NV (EGLAPIENTRYP PFNEGLGETSYSTEMTIMEFREQUENCYNVPROC)(void);
+typedef EGLuint64NV (EGLAPIENTRYP PFNEGLGETSYSTEMTIMENVPROC)(void);
+#endif
+
+
+/* EGL_ANDROID_blob_cache
+ */
+#ifndef EGL_ANDROID_blob_cache
+#define EGL_ANDROID_blob_cache 1
+typedef khronos_ssize_t EGLsizeiANDROID;
+typedef void (*EGLSetBlobFuncANDROID) (const void* key, EGLsizeiANDROID keySize, const void* value, EGLsizeiANDROID valueSize);
+typedef EGLsizeiANDROID (*EGLGetBlobFuncANDROID) (const void* key, EGLsizeiANDROID keySize, void* value, EGLsizeiANDROID valueSize);
+#ifdef EGL_EGLEXT_PROTOTYPES
+EGLAPI void EGLAPIENTRY eglSetBlobCacheFuncsANDROID(EGLDisplay dpy, EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get);
 #endif /* EGL_EGLEXT_PROTOTYPES */
-typedef EGLBoolean (EGLAPIENTRYP PFNEGLSETSWAPRECTANGLEANDROIDPROC) (EGLDisplay dpy, EGLSurface draw, EGLint left, EGLint top, EGLint width, EGLint height);
+typedef void (EGLAPIENTRYP PFNEGLSETBLOBCACHEFUNCSANDROIDPROC) (EGLDisplay dpy,
+        EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get);
 #endif
 
 #ifdef __cplusplus

@@ -61,6 +61,12 @@ import android.util.Log;
  * for future searches by calling {@link android.provider.SearchRecentSuggestions#saveRecentQuery
  * SearchRecentSuggestions.saveRecentQuery()}.</li>
  * </ul>
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For information about using search suggestions in your application, read the
+ * <a href="{@docRoot}guide/topics/search/index.html">Search</a> developer guide.</p>
+ * </div>
  * 
  * @see android.provider.SearchRecentSuggestions
  */
@@ -186,6 +192,9 @@ public class SearchRecentSuggestionsProvider extends ContentProvider {
 
             mSuggestionProjection = new String [] {
                     "0 AS " + SearchManager.SUGGEST_COLUMN_FORMAT,
+                    "'android.resource://system/"
+                            + com.android.internal.R.drawable.ic_menu_recent_history + "' AS "
+                            + SearchManager.SUGGEST_COLUMN_ICON_1,
                     "display1 AS " + SearchManager.SUGGEST_COLUMN_TEXT_1,
                     "display2 AS " + SearchManager.SUGGEST_COLUMN_TEXT_2,
                     "query AS " + SearchManager.SUGGEST_COLUMN_QUERY,
@@ -196,6 +205,9 @@ public class SearchRecentSuggestionsProvider extends ContentProvider {
 
             mSuggestionProjection = new String [] {
                     "0 AS " + SearchManager.SUGGEST_COLUMN_FORMAT,
+                    "'android.resource://system/"
+                            + com.android.internal.R.drawable.ic_menu_recent_history + "' AS "
+                            + SearchManager.SUGGEST_COLUMN_ICON_1,
                     "display1 AS " + SearchManager.SUGGEST_COLUMN_TEXT_1,
                     "query AS " + SearchManager.SUGGEST_COLUMN_QUERY,
                     "_id"

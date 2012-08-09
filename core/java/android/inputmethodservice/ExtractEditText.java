@@ -19,6 +19,7 @@ package android.inputmethodservice;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 
 /***
@@ -98,11 +99,8 @@ public class ExtractEditText extends EditText {
     }
     
     @Override public boolean onTextContextMenuItem(int id) {
-        // Horrible hack: select word option has to be handled by original view to work.
-        if (mIME != null && id != android.R.id.startSelectingText) {
-            if (mIME.onExtractTextContextMenuItem(id)) {
-                return true;
-            }
+        if (mIME != null && mIME.onExtractTextContextMenuItem(id)) {
+            return true;
         }
         return super.onTextContextMenuItem(id);
     }
@@ -144,5 +142,62 @@ public class ExtractEditText extends EditText {
      */
     @Override public boolean hasFocus() {
         return this.isEnabled();
+    }
+
+    /**
+     * @hide
+     */
+    @Override protected void viewClicked(InputMethodManager imm) {
+        // As an instance of this class is supposed to be owned by IMS,
+        // and it has a reference to the IMS (the current IME),
+        // we just need to call back its onViewClicked() here.
+        // It should be good to avoid unnecessary IPCs by doing this as well.
+        if (mIME != null) {
+            mIME.onViewClicked(false);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * @hide
+     */
+    @Override
+    protected void deleteText_internal(int start, int end) {
+        // Do not call the super method.
+        // This will change the source TextView instead, which will update the ExtractTextView.
+        mIME.onExtractedDeleteText(start, end);
+    }
+
+    /**
+     * {@inheritDoc}
+     * @hide
+     */
+    @Override
+    protected void replaceText_internal(int start, int end, CharSequence text) {
+        // Do not call the super method.
+        // This will change the source TextView instead, which will update the ExtractTextView.
+        mIME.onExtractedReplaceText(start, end, text);
+    }
+
+    /**
+     * {@inheritDoc}
+     * @hide
+     */
+    @Override
+    protected void setSpan_internal(Object span, int start, int end, int flags) {
+        // Do not call the super method.
+        // This will change the source TextView instead, which will update the ExtractTextView.
+        mIME.onExtractedSetSpan(span, start, end, flags);
+    }
+
+    /**
+     * {@inheritDoc}
+     * @hide
+     */
+    @Override
+    protected void setCursorPosition_internal(int start, int end) {
+        // Do not call the super method.
+        // This will change the source TextView instead, which will update the ExtractTextView.
+        mIME.onExtractedSelectionChanged(start, end);
     }
 }

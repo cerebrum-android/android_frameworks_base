@@ -11,7 +11,7 @@ import android.os.IPowerManager;
 import android.os.Power;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.preference.MultiSelectListPreference;
+import android.preference.ListPreferenceMultiSelect;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
@@ -162,7 +162,7 @@ public class BrightnessButton extends PowerButton {
 
         BACKLIGHTS[1] = MIN_BACKLIGHT;
 
-        String[] modes = MultiSelectListPreference.parseStoredValue(Settings.System.getString(
+        String[] modes = ListPreferenceMultiSelect.parseStoredValue(Settings.System.getString(
                 resolver, Settings.System.EXPANDED_BRIGHTNESS_MODE));
         if (modes == null || modes.length == 0) {
             mBacklightValues = new int[] {

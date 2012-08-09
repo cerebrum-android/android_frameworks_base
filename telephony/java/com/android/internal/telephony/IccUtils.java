@@ -16,13 +16,16 @@
 
 package com.android.internal.telephony;
 
+import android.content.res.Resources;
+import android.content.res.Resources.NotFoundException;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.util.Log;
 
 import com.android.internal.telephony.GsmAlphabet;
-
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 
 /**
  * Various methods, useful for dealing with SIM data.
@@ -60,6 +63,29 @@ public class IccUtils {
         return ret.toString();
     }
 
+    /**
+     * Decode cdma byte into String.
+     */
+    public static String
+    cdmaBcdToString(byte[] data, int offset, int length) {
+        StringBuilder ret = new StringBuilder(length);
+
+        int count = 0;
+        for (int i = offset; count < length; i++) {
+            int v;
+            v = data[i] & 0xf;
+            if (v > 9)  v = 0;
+            ret.append((char)('0' + v));
+
+            if (++count == length) break;
+
+            v = (data[i] >> 4) & 0xf;
+            if (v > 9)  v = 0;
+            ret.append((char)('0' + v));
+            ++count;
+        }
+        return ret.toString();
+    }
 
     /**
      * Decodes a GSM-style BCD byte, returning an int ranging from 0-99.
@@ -150,47 +176,9 @@ public class IccUtils {
      */
     public static String
     adnStringFieldToString(byte[] data, int offset, int length) {
-        String s = adnStringFieldToStringUcs2Helper(data, offset, length);
-        if (s == null) {
-            s = adnStringFieldToStringGsm8BitHelper(data, offset, length);
+        if (length == 0) {
+            return "";
         }
-        return s;
-    }
-
-    /**
-     * Almost identical to the method {@link #adnStringFieldToString}.
-     *
-     * Exception:
-     * If the SIM is Korean (MCC equals "450"), KSC5601 encoding will be
-     * assumed (instead of GSM8Bit). This could lead to unintended consequences,
-     * if the ADN alphaTag was saved with GSM8Bit. This is considered an
-     * acceptable risk.
-     */
-    public static String
-    adnStringFieldToStringKsc5601Support(byte[] data, int offset, int length) {
-        String s = adnStringFieldToStringUcs2Helper(data, offset, length);
-
-        if (s == null) {
-            if (SimRegionCache.getRegion() == SimRegionCache.MCC_KOREAN) {
-                try {
-                    int len = offset;
-                    byte stop = (byte)0xFF;
-                    while (len < length && data[len] != stop) {
-                        len++;
-                    }
-                    return new String(data, offset, len, "KSC5601");
-                } catch (UnsupportedEncodingException e) {
-                    Log.e(LOG_TAG, "implausible UnsupportedEncodingException", e);
-                }
-            }
-
-            return adnStringFieldToStringGsm8BitHelper(data, offset, length);
-        }
-        return s;
-    }
-
-    private static String
-    adnStringFieldToStringUcs2Helper(byte[] data, int offset, int length) {
         if (length >= 1) {
             if (data[offset] == (byte) 0x80) {
                 int ucslen = (length - 1) / 2;
@@ -266,12 +254,15 @@ public class IccUtils {
             return ret.toString();
         }
 
-        return null;
-    }
-
-    private static String
-    adnStringFieldToStringGsm8BitHelper(byte[] data, int offset, int length) {
-        return GsmAlphabet.gsm8BitUnpackedToString(data, offset, length);
+        Resources resource = Resources.getSystem();
+        String defaultCharset = "";
+        try {
+            defaultCharset =
+                    resource.getString(com.android.internal.R.string.gsm_alphabet_default_charset);
+        } catch (NotFoundException e) {
+            // Ignore Exception and defaultCharset is set to a empty string.
+        }
+        return GsmAlphabet.gsm8BitUnpackedToString(data, offset, length, defaultCharset.trim());
     }
 
     static int
@@ -313,9 +304,11 @@ public class IccUtils {
 
 
     /**
-     * Converts a byte array into a String hexidecimal characters
+     * Converts a byte array into a String of hexadecimal characters.
      *
-     * null returns null
+     * @param bytes an array of bytes
+     *
+     * @return hex string representation of bytes array
      */
     public static String
     bytesToHexString(byte[] bytes) {

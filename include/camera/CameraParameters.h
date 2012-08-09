@@ -66,19 +66,31 @@ public:
     // getSupportedVideoSizes(). Must not be called if
     // getSupportedVideoSizes() returns an empty Vector of Size.
     void setVideoSize(int width, int height);
-
     // Retrieve the current dimensions (width and height)
     // in pixels for video frames, which must be one of the
     // supported dimensions returned from getSupportedVideoSizes().
     // Must not be called if getSupportedVideoSizes() returns an
     // empty Vector of Size.
     void getVideoSize(int *width, int *height) const;
+    // Retrieve a Vector of supported dimensions (width and height)
+    // in pixels for video frames. If sizes returned from the method
+    // is empty, the camera does not support calls to setVideoSize()
+    // or getVideoSize(). In adddition, it also indicates that
+    // the camera only has a single output, and does not have
+    // separate output for video frames and preview frame.
+    void getSupportedVideoSizes(Vector<Size> &sizes) const;
+    // Retrieve the preferred preview size (width and height) in pixels
+    // for video recording. The given width and height must be one of
+    // supported preview sizes returned from getSupportedPreviewSizes().
+    // Must not be called if getSupportedVideoSizes() returns an empty
+    // Vector of Size. If getSupportedVideoSizes() returns an empty
+    // Vector of Size, the width and height returned from this method
+    // is invalid, and is "-1x-1".
+    void getPreferredPreviewSizeForVideo(int *width, int *height) const;
 
     void setPreviewFrameRate(int fps);
     int getPreviewFrameRate() const;
     void getPreviewFpsRange(int *min_fps, int *max_fps) const;
-    void setPreviewFrameRateMode(const char *mode);
-    const char *getPreviewFrameRateMode() const;
     void setPreviewFormat(const char *format);
     const char *getPreviewFormat() const;
     void setPictureSize(int width, int height);
@@ -86,10 +98,6 @@ public:
     void getSupportedPictureSizes(Vector<Size> &sizes) const;
     void setPictureFormat(const char *format);
     const char *getPictureFormat() const;
-    void setTouchIndexAec(int x, int y);
-    void getTouchIndexAec(int *x, int *y) const;
-    void setTouchIndexAf(int x, int y);
-    void getTouchIndexAf(int *x, int *y) const;
 
     void dump() const;
     status_t dump(int fd, const Vector<String16>& args) const;
@@ -132,12 +140,6 @@ public:
     // Supported number of preview frames per second.
     // Example value: "24,15,10". Read.
     static const char KEY_SUPPORTED_PREVIEW_FRAME_RATES[];
-    // The mode of preview frame rate.
-    // Example value: "frame-rate-auto, frame-rate-fixed".
-    static const char KEY_PREVIEW_FRAME_RATE_MODE[];
-    static const char KEY_SUPPORTED_PREVIEW_FRAME_RATE_MODES[];
-    static const char KEY_PREVIEW_FRAME_RATE_AUTO_MODE[];
-    static const char KEY_PREVIEW_FRAME_RATE_FIXED_MODE[];
     // The dimensions for captured pictures in pixels (width x height).
     // Example value: "1024x768". Read/write.
     static const char KEY_PICTURE_SIZE[];
@@ -157,7 +159,6 @@ public:
     // The height (in pixels) of EXIF thumbnail in Jpeg picture.
     // Example value: "384". Read/write.
     static const char KEY_JPEG_THUMBNAIL_HEIGHT[];
-    static const char KEY_SUPPORTED_THUMBNAIL_SIZES[];
     // Supported EXIF thumbnail sizes (width x height). 0x0 means not thumbnail
     // in EXIF.
     // Example value: "512x384,320x240,0x0". Read only.
@@ -201,31 +202,6 @@ public:
     // header.
     // Example value: "21.0" or "-5". Write only.
     static const char KEY_GPS_ALTITUDE[];
-    static const char KEY_GPS_LATITUDE_REF[];
-    static const char KEY_GPS_LONGITUDE_REF[];
-    static const char KEY_GPS_ALTITUDE_REF[];
-    static const char KEY_GPS_STATUS[];
-    static const char KEY_EXIF_DATETIME[];
-
-    static const char KEY_AUTO_EXPOSURE[];
-    static const char KEY_SUPPORTED_AUTO_EXPOSURE[];
-    static const char KEY_ISO_MODE[];
-    static const char KEY_SUPPORTED_ISO_MODES[];
-    static const char KEY_LENSSHADE[] ;
-    static const char KEY_SUPPORTED_LENSSHADE_MODES[] ;
-    static const char KEY_SHARPNESS[];
-    static const char KEY_MAX_SHARPNESS[];
-    static const char KEY_CONTRAST[];
-    static const char KEY_MAX_CONTRAST[];
-    static const char KEY_SATURATION[];
-    static const char KEY_MAX_SATURATION[];
-
-    // Values for auto exposure settings.
-    static const char AUTO_EXPOSURE_FRAME_AVG[];
-    static const char AUTO_EXPOSURE_CENTER_WEIGHTED[];
-    static const char AUTO_EXPOSURE_SPOT_METERING[];
-
-
     // GPS timestamp (UTC in seconds since January 1, 1970). This should be
     // stored in JPEG EXIF header.
     // Example value: "1251192757". Write only.
@@ -245,13 +221,6 @@ public:
     // Supported color effect settings.
     // Example value: "none,mono,sepia". Read only.
     static const char KEY_SUPPORTED_EFFECTS[];
-    //Touch Af/AEC settings.
-    static const char KEY_TOUCH_AF_AEC[];
-    static const char KEY_SUPPORTED_TOUCH_AF_AEC[];
-    //Touch Index for AEC.
-    static const char KEY_TOUCH_INDEX_AEC[];
-    //Touch Index for AF.
-    static const char KEY_TOUCH_INDEX_AF[];
     // Current antibanding setting.
     // Example value: "auto" or ANTIBANDING_XXX constants. Read/write.
     static const char KEY_ANTIBANDING[];
@@ -278,6 +247,46 @@ public:
     // Supported focus modes.
     // Example value: "auto,macro,fixed". Read only.
     static const char KEY_SUPPORTED_FOCUS_MODES[];
+    // The maximum number of focus areas supported. This is the maximum length
+    // of KEY_FOCUS_AREAS.
+    // Example value: "0" or "2". Read only.
+    static const char KEY_MAX_NUM_FOCUS_AREAS[];
+    // Current focus areas.
+    //
+    // Before accessing this parameter, apps should check
+    // KEY_MAX_NUM_FOCUS_AREAS first to know the maximum number of focus areas
+    // first. If the value is 0, focus area is not supported.
+    //
+    // Each focus area is a five-element int array. The first four elements are
+    // the rectangle of the area (left, top, right, bottom). The direction is
+    // relative to the sensor orientation, that is, what the sensor sees. The
+    // direction is not affected by the rotation or mirroring of
+    // CAMERA_CMD_SET_DISPLAY_ORIENTATION. Coordinates range from -1000 to 1000.
+    // (-1000,-1000) is the upper left point. (1000, 1000) is the lower right
+    // point. The width and height of focus areas cannot be 0 or negative.
+    //
+    // The fifth element is the weight. Values for weight must range from 1 to
+    // 1000.  The weight should be interpreted as a per-pixel weight - all
+    // pixels in the area have the specified weight. This means a small area
+    // with the same weight as a larger area will have less influence on the
+    // focusing than the larger area. Focus areas can partially overlap and the
+    // driver will add the weights in the overlap region.
+    //
+    // A special case of single focus area (0,0,0,0,0) means driver to decide
+    // the focus area. For example, the driver may use more signals to decide
+    // focus areas and change them dynamically. Apps can set (0,0,0,0,0) if they
+    // want the driver to decide focus areas.
+    //
+    // Focus areas are relative to the current field of view (KEY_ZOOM). No
+    // matter what the zoom level is, (-1000,-1000) represents the top of the
+    // currently visible camera frame. The focus area cannot be set to be
+    // outside the current field of view, even when using zoom.
+    //
+    // Focus area only has effect if the current focus mode is FOCUS_MODE_AUTO,
+    // FOCUS_MODE_MACRO, FOCUS_MODE_CONTINUOUS_VIDEO, or
+    // FOCUS_MODE_CONTINUOUS_PICTURE.
+    // Example value: "(-10,-10,0,0,300),(0,0,10,10,700)". Read/write.
+    static const char KEY_FOCUS_AREAS[];
     // Focal length in millimeter.
     // Example value: "4.31". Read only.
     static const char KEY_FOCAL_LENGTH[];
@@ -301,6 +310,84 @@ public:
     // 0.3333, EV is -2.
     // Example value: "0.333333333" or "0.5". Read only.
     static const char KEY_EXPOSURE_COMPENSATION_STEP[];
+    // The state of the auto-exposure lock. "true" means that
+    // auto-exposure is locked to its current value and will not
+    // change. "false" means the auto-exposure routine is free to
+    // change exposure values. If auto-exposure is already locked,
+    // setting this to true again has no effect (the driver will not
+    // recalculate exposure values). Changing exposure compensation
+    // settings will still affect the exposure settings while
+    // auto-exposure is locked. Stopping preview or taking a still
+    // image will not change the lock. In conjunction with
+    // exposure compensation, this allows for capturing multi-exposure
+    // brackets with known relative exposure values. Locking
+    // auto-exposure after open but before the first call to
+    // startPreview may result in severely over- or under-exposed
+    // images.  The driver will not change the AE lock after
+    // auto-focus completes.
+    static const char KEY_AUTO_EXPOSURE_LOCK[];
+    // Whether locking the auto-exposure is supported. "true" means it is, and
+    // "false" or this key not existing means it is not supported.
+    static const char KEY_AUTO_EXPOSURE_LOCK_SUPPORTED[];
+    // The state of the auto-white balance lock. "true" means that
+    // auto-white balance is locked to its current value and will not
+    // change. "false" means the auto-white balance routine is free to
+    // change white balance values. If auto-white balance is already
+    // locked, setting this to true again has no effect (the driver
+    // will not recalculate white balance values). Stopping preview or
+    // taking a still image will not change the lock. In conjunction
+    // with exposure compensation, this allows for capturing
+    // multi-exposure brackets with fixed white balance. Locking
+    // auto-white balance after open but before the first call to
+    // startPreview may result in severely incorrect color.  The
+    // driver will not change the AWB lock after auto-focus
+    // completes.
+    static const char KEY_AUTO_WHITEBALANCE_LOCK[];
+    // Whether locking the auto-white balance is supported. "true"
+    // means it is, and "false" or this key not existing means it is
+    // not supported.
+    static const char KEY_AUTO_WHITEBALANCE_LOCK_SUPPORTED[];
+
+    // The maximum number of metering areas supported. This is the maximum
+    // length of KEY_METERING_AREAS.
+    // Example value: "0" or "2". Read only.
+    static const char KEY_MAX_NUM_METERING_AREAS[];
+    // Current metering areas. Camera driver uses these areas to decide
+    // exposure.
+    //
+    // Before accessing this parameter, apps should check
+    // KEY_MAX_NUM_METERING_AREAS first to know the maximum number of metering
+    // areas first. If the value is 0, metering area is not supported.
+    //
+    // Each metering area is a rectangle with specified weight. The direction is
+    // relative to the sensor orientation, that is, what the sensor sees. The
+    // direction is not affected by the rotation or mirroring of
+    // CAMERA_CMD_SET_DISPLAY_ORIENTATION. Coordinates of the rectangle range
+    // from -1000 to 1000. (-1000, -1000) is the upper left point. (1000, 1000)
+    // is the lower right point. The width and height of metering areas cannot
+    // be 0 or negative.
+    //
+    // The fifth element is the weight. Values for weight must range from 1 to
+    // 1000.  The weight should be interpreted as a per-pixel weight - all
+    // pixels in the area have the specified weight. This means a small area
+    // with the same weight as a larger area will have less influence on the
+    // metering than the larger area. Metering areas can partially overlap and
+    // the driver will add the weights in the overlap region.
+    //
+    // A special case of all-zero single metering area means driver to decide
+    // the metering area. For example, the driver may use more signals to decide
+    // metering areas and change them dynamically. Apps can set all-zero if they
+    // want the driver to decide metering areas.
+    //
+    // Metering areas are relative to the current field of view (KEY_ZOOM).
+    // No matter what the zoom level is, (-1000,-1000) represents the top of the
+    // currently visible camera frame. The metering area cannot be set to be
+    // outside the current field of view, even when using zoom.
+    //
+    // No matter what metering areas are, the final exposure are compensated
+    // by KEY_EXPOSURE_COMPENSATION.
+    // Example value: "(-10,-10,0,0,300),(0,0,10,10,700)". Read/write.
+    static const char KEY_METERING_AREAS[];
     // Current zoom value.
     // Example value: "0" or "6". Read/write.
     static const char KEY_ZOOM[];
@@ -353,23 +440,96 @@ public:
     // via KEY_SUPPORTED_VIDEO_SIZES.
     // Example value: "1280x720". Read/write.
     static const char KEY_VIDEO_SIZE[];
+    // A list of the supported dimensions in pixels (width x height)
+    // for video frames. See CAMERA_MSG_VIDEO_FRAME for details in
+    // frameworks/base/include/camera/Camera.h.
+    // Example: "176x144,1280x720". Read only.
+    static const char KEY_SUPPORTED_VIDEO_SIZES[];
+
+    // The maximum number of detected faces supported by hardware face
+    // detection. If the value is 0, hardware face detection is not supported.
+    // Example: "5". Read only
+    static const char KEY_MAX_NUM_DETECTED_FACES_HW[];
+
+    // The maximum number of detected faces supported by software face
+    // detection. If the value is 0, software face detection is not supported.
+    // Example: "5". Read only
+    static const char KEY_MAX_NUM_DETECTED_FACES_SW[];
+
+    // Preferred preview frame size in pixels for video recording.
+    // The width and height must be one of the supported sizes retrieved
+    // via KEY_SUPPORTED_PREVIEW_SIZES. This key can be used only when
+    // getSupportedVideoSizes() does not return an empty Vector of Size.
+    // Camcorder applications are recommended to set the preview size
+    // to a value that is not larger than the preferred preview size.
+    // In other words, the product of the width and height of the
+    // preview size should not be larger than that of the preferred
+    // preview size. In addition, we recommend to choos a preview size
+    // that has the same aspect ratio as the resolution of video to be
+    // recorded.
+    // Example value: "800x600". Read only.
+    static const char KEY_PREFERRED_PREVIEW_SIZE_FOR_VIDEO[];
 
     // The image format for video frames. See CAMERA_MSG_VIDEO_FRAME in
     // frameworks/base/include/camera/Camera.h.
     // Example value: "yuv420sp" or PIXEL_FORMAT_XXX constants. Read only.
     static const char KEY_VIDEO_FRAME_FORMAT[];
 
+    // Sets the hint of the recording mode. If this is true, MediaRecorder.start
+    // may be faster or has less glitches. This should be called before starting
+    // the preview for the best result. But it is allowed to change the hint
+    // while the preview is active. The default value is false.
+    //
+    // The apps can still call Camera.takePicture when the hint is true. The
+    // apps can call MediaRecorder.start when the hint is false. But the
+    // performance may be worse.
+    // Example value: "true" or "false". Read/write.
+    static const char KEY_RECORDING_HINT[];
+
+    // Returns true if video snapshot is supported. That is, applications
+    // can call Camera.takePicture during recording. Applications do not need to
+    // call Camera.startPreview after taking a picture. The preview will be
+    // still active. Other than that, taking a picture during recording is
+    // identical to taking a picture normally. All settings and methods related
+    // to takePicture work identically. Ex: KEY_PICTURE_SIZE,
+    // KEY_SUPPORTED_PICTURE_SIZES, KEY_JPEG_QUALITY, KEY_ROTATION, and etc.
+    // The picture will have an EXIF header. FLASH_MODE_AUTO and FLASH_MODE_ON
+    // also still work, but the video will record the flash.
+    //
+    // Applications can set shutter callback as null to avoid the shutter
+    // sound. It is also recommended to set raw picture and post view callbacks
+    // to null to avoid the interrupt of preview display.
+    //
+    // Field-of-view of the recorded video may be different from that of the
+    // captured pictures.
+    // Example value: "true" or "false". Read only.
+    static const char KEY_VIDEO_SNAPSHOT_SUPPORTED[];
+
+    // The state of the video stabilization. If set to true, both the
+    // preview stream and the recorded video stream are stabilized by
+    // the camera. Only valid to set if KEY_VIDEO_STABILIZATION_SUPPORTED is
+    // set to true.
+    //
+    // The value of this key can be changed any time the camera is
+    // open. If preview or recording is active, it is acceptable for
+    // there to be a slight video glitch when video stabilization is
+    // toggled on and off.
+    //
+    // This only stabilizes video streams (between-frames stabilization), and
+    // has no effect on still image capture.
+    static const char KEY_VIDEO_STABILIZATION[];
+
+    // Returns true if video stabilization is supported. That is, applications
+    // can set KEY_VIDEO_STABILIZATION to true and have a stabilized preview
+    // stream and record stabilized videos.
+    static const char KEY_VIDEO_STABILIZATION_SUPPORTED[];
+
     // Value for KEY_ZOOM_SUPPORTED or KEY_SMOOTH_ZOOM_SUPPORTED.
     static const char TRUE[];
+    static const char FALSE[];
 
     // Value for KEY_FOCUS_DISTANCES.
     static const char FOCUS_DISTANCE_INFINITY[];
-
-    //Continuous AF.
-    static const char KEY_CAF[];
-    static const char KEY_CONTINUOUS_AF[];
-    static const char KEY_SUPPORTED_CAF[];
-    static const char KEY_SUPPORTED_CONTINUOUS_AF[];
 
     // Values for white balance settings.
     static const char WHITE_BALANCE_AUTO[];
@@ -391,10 +551,6 @@ public:
     static const char EFFECT_WHITEBOARD[];
     static const char EFFECT_BLACKBOARD[];
     static const char EFFECT_AQUA[];
-
-    // Values for Touch AF/AEC
-    static const char TOUCH_AF_AEC_OFF[] ;
-    static const char TOUCH_AF_AEC_ON[] ;
 
     // Values for antibanding settings.
     static const char ANTIBANDING_AUTO[];
@@ -437,15 +593,18 @@ public:
     // for barcode reading.
     static const char SCENE_MODE_BARCODE[];
 
-    // Formats for setPreviewFormat and setPictureFormat.
+    // Pixel color formats for KEY_PREVIEW_FORMAT, KEY_PICTURE_FORMAT,
+    // and KEY_VIDEO_FRAME_FORMAT
     static const char PIXEL_FORMAT_YUV422SP[];
     static const char PIXEL_FORMAT_YUV420SP[]; // NV21
-    static const char PIXEL_FORMAT_YUV420P[];
     static const char PIXEL_FORMAT_YUV422I[]; // YUY2
+    static const char PIXEL_FORMAT_YUV420P[]; // YV12
     static const char PIXEL_FORMAT_RGB565[];
+    static const char PIXEL_FORMAT_RGBA8888[];
     static const char PIXEL_FORMAT_JPEG[];
-    static const char PIXEL_FORMAT_RAW[];
-
+    // Raw bayer format used for images, which is 10 bit precision samples
+    // stored in 16 bit words. The filter pattern is RGGB.
+    static const char PIXEL_FORMAT_BAYER_RGGB[];
 
     // Values for focus mode settings.
     // Auto-focus mode. Applications should call
@@ -454,7 +613,6 @@ public:
     // Focus is set at infinity. Applications should not call
     // CameraHardwareInterface.autoFocus in this mode.
     static const char FOCUS_MODE_INFINITY[];
-    static const char FOCUS_MODE_NORMAL[];
     // Macro (close-up) focus mode. Applications should call
     // CameraHardwareInterface.autoFocus to start the focus in this mode.
     static const char FOCUS_MODE_MACRO[];
@@ -468,32 +626,36 @@ public:
     // CameraHardwareInterface.autoFocus in this mode.
     static const char FOCUS_MODE_EDOF[];
     // Continuous auto focus mode intended for video recording. The camera
-    // continuously tries to focus. This is ideal for shooting video.
-    // Applications still can call CameraHardwareInterface.takePicture in this
-    // mode but the subject may not be in focus. Auto focus starts when the
-    // parameter is set. Applications should not call
-    // CameraHardwareInterface.autoFocus in this mode. To stop continuous focus,
-    // applications should change the focus mode to other modes.
+    // continuously tries to focus. This is the best choice for video
+    // recording because the focus changes smoothly . Applications still can
+    // call CameraHardwareInterface.takePicture in this mode but the subject may
+    // not be in focus. Auto focus starts when the parameter is set.
+    //
+    // Applications can call CameraHardwareInterface.autoFocus in this mode. The
+    // focus callback will immediately return with a boolean that indicates
+    // whether the focus is sharp or not. The focus position is locked after
+    // autoFocus call. If applications want to resume the continuous focus,
+    // cancelAutoFocus must be called. Restarting the preview will not resume
+    // the continuous autofocus. To stop continuous focus, applications should
+    // change the focus mode to other modes.
     static const char FOCUS_MODE_CONTINUOUS_VIDEO[];
-
-    // Values for Continuous AF
-    static const char CAF_OFF[] ;
-    static const char CAF_ON[] ;
-    // Proprietaries from CodeAurora use these...
-    static const char CONTINUOUS_AF_OFF[] ;
-    static const char CONTINUOUS_AF_ON[] ;
-
-    static const char ISO_AUTO[];
-    static const char ISO_HJR[] ;
-    static const char ISO_100[];
-    static const char ISO_200[] ;
-    static const char ISO_400[];
-    static const char ISO_800[];
-    static const char ISO_1600[];
-    // Values for Lens Shading
-    static const char LENSSHADE_ENABLE[] ;
-    static const char LENSSHADE_DISABLE[] ;
-
+    // Continuous auto focus mode intended for taking pictures. The camera
+    // continuously tries to focus. The speed of focus change is more aggressive
+    // than FOCUS_MODE_CONTINUOUS_VIDEO. Auto focus starts when the parameter is
+    // set.
+    //
+    // Applications can call CameraHardwareInterface.autoFocus in this mode. If
+    // the autofocus is in the middle of scanning, the focus callback will
+    // return when it completes. If the autofocus is not scanning, focus
+    // callback will immediately return with a boolean that indicates whether
+    // the focus is sharp or not. The apps can then decide if they want to take
+    // a picture immediately or to change the focus mode to auto, and run a full
+    // autofocus cycle. The focus position is locked after autoFocus call. If
+    // applications want to resume the continuous focus, cancelAutoFocus must be
+    // called. Restarting the preview will not resume the continuous autofocus.
+    // To stop continuous focus, applications should change the focus mode to
+    // other modes.
+    static const char FOCUS_MODE_CONTINUOUS_PICTURE[];
 
 private:
     DefaultKeyedVector<String8,String8>    mMap;

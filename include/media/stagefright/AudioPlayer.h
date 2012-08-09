@@ -51,9 +51,7 @@ public:
 
     void pause(bool playPendingSamples = false);
     void resume();
-#ifdef OMAP_ENHANCEMENT
-    void flush();
-#endif
+
     // Returns the timestamp of the last buffer played (in us).
     int64_t getMediaTimeUs();
 
@@ -67,6 +65,7 @@ public:
     bool reachedEOS(status_t *finalStatus);
 
 private:
+    friend class VideoEditorAudioPlayer;
     sp<MediaSource> mSource;
     AudioTrack *mAudioTrack;
 
@@ -109,12 +108,10 @@ private:
 
     void reset();
 
+    uint32_t getNumFramesPendingPlayout() const;
+
     AudioPlayer(const AudioPlayer &);
     AudioPlayer &operator=(const AudioPlayer &);
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    int64_t mRealTimeInterpolation;
-    int64_t GetSystemTimeuSec();
-#endif
 };
 
 }  // namespace android

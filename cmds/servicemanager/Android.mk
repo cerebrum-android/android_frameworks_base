@@ -1,4 +1,3 @@
-ifneq ($(TARGET_SIMULATOR),true)
 LOCAL_PATH:= $(call my-dir)
 
 #include $(CLEAR_VARS)
@@ -16,5 +15,7 @@ endif
 ifeq ($(BOARD_USE_YAMAHAPLAYER),true)
     LOCAL_CFLAGS += -DYAMAHAPLAYER
 endif
-include $(BUILD_EXECUTABLE)
+ifeq ($(BOARD_USE_SECTVOUT),true)
+    LOCAL_CFLAGS += -DSECTVOUT
 endif
+include $(BUILD_EXECUTABLE)

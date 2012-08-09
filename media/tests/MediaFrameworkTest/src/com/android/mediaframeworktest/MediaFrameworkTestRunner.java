@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 The Android Open Source Project
+ * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,29 @@
 package com.android.mediaframeworktest;
 
 import com.android.mediaframeworktest.functional.CameraTest;
-import com.android.mediaframeworktest.functional.MediaAudioTrackTest;
 import com.android.mediaframeworktest.functional.MediaMetadataTest;
 import com.android.mediaframeworktest.functional.MediaMimeTest;
-import com.android.mediaframeworktest.functional.MediaPlayerApiTest;
-import com.android.mediaframeworktest.functional.MediaRecorderTest;
-import com.android.mediaframeworktest.functional.SimTonesTest;
 import com.android.mediaframeworktest.functional.MediaPlayerInvokeTest;
-import com.android.mediaframeworktest.functional.MediaAudioManagerTest;
-import com.android.mediaframeworktest.functional.MediaAudioEffectTest;
-import com.android.mediaframeworktest.functional.MediaBassBoostTest;
-import com.android.mediaframeworktest.functional.MediaEnvReverbTest;
-import com.android.mediaframeworktest.functional.MediaEqualizerTest;
-import com.android.mediaframeworktest.functional.MediaPresetReverbTest;
-import com.android.mediaframeworktest.functional.MediaVirtualizerTest;
-import com.android.mediaframeworktest.functional.MediaVisualizerTest;
+import com.android.mediaframeworktest.functional.mediaplayback.MediaPlayerApiTest;
+import com.android.mediaframeworktest.functional.mediarecorder.MediaRecorderTest;
+import com.android.mediaframeworktest.functional.audio.SimTonesTest;
+import com.android.mediaframeworktest.functional.audio.MediaAudioTrackTest;
+import com.android.mediaframeworktest.functional.audio.MediaAudioManagerTest;
+import com.android.mediaframeworktest.functional.audio.MediaAudioEffectTest;
+import com.android.mediaframeworktest.functional.audio.MediaBassBoostTest;
+import com.android.mediaframeworktest.functional.audio.MediaEnvReverbTest;
+import com.android.mediaframeworktest.functional.audio.MediaEqualizerTest;
+import com.android.mediaframeworktest.functional.audio.MediaPresetReverbTest;
+import com.android.mediaframeworktest.functional.audio.MediaVirtualizerTest;
+import com.android.mediaframeworktest.functional.audio.MediaVisualizerTest;
+import com.android.mediaframeworktest.functional.videoeditor.MediaItemThumbnailTest;
+import com.android.mediaframeworktest.functional.videoeditor.MediaPropertiesTest;
+import com.android.mediaframeworktest.functional.videoeditor.VideoEditorAPITest;
+import com.android.mediaframeworktest.functional.videoeditor.VideoEditorExportTest;
+import com.android.mediaframeworktest.functional.videoeditor.VideoEditorPreviewTest;
 import junit.framework.TestSuite;
 
+import android.os.Bundle;
 import android.test.InstrumentationTestRunner;
 import android.test.InstrumentationTestSuite;
 
@@ -49,6 +55,7 @@ import android.test.InstrumentationTestSuite;
 
 public class MediaFrameworkTestRunner extends InstrumentationTestRunner {
 
+    public static int mMinCameraFps = 0;
 
     @Override
     public TestSuite getAllTests() {
@@ -69,11 +76,29 @@ public class MediaFrameworkTestRunner extends InstrumentationTestRunner {
         suite.addTestSuite(MediaPresetReverbTest.class);
         suite.addTestSuite(MediaVirtualizerTest.class);
         suite.addTestSuite(MediaVisualizerTest.class);
+        /*Test for Video Editor*/
+        suite.addTestSuite(MediaItemThumbnailTest.class);
+        suite.addTestSuite(MediaPropertiesTest.class);
+        suite.addTestSuite(VideoEditorAPITest.class);
+        suite.addTestSuite(VideoEditorExportTest.class);
+        suite.addTestSuite(VideoEditorPreviewTest.class);
         return suite;
     }
 
     @Override
     public ClassLoader getLoader() {
         return MediaFrameworkTestRunner.class.getClassLoader();
+    }
+
+    @Override
+    public void onCreate(Bundle icicle) {
+        super.onCreate(icicle);
+
+        String minCameraFps = (String) icicle.get("min_camera_fps");
+        System.out.print("min_camera_" + minCameraFps);
+
+        if (minCameraFps != null ) {
+            mMinCameraFps = Integer.parseInt(minCameraFps);
+        }
     }
 }

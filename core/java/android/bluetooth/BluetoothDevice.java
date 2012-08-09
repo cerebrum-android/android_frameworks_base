@@ -54,6 +54,12 @@ import java.util.UUID;
  * <p class="note"><strong>Note:</strong>
  * Requires the {@link android.Manifest.permission#BLUETOOTH} permission.
  *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using Bluetooth, read the
+ * <a href="{@docRoot}guide/topics/wireless/bluetooth.html">Bluetooth</a> developer guide.</p>
+ * </div>
+ *
  * {@see BluetoothAdapter}
  * {@see BluetoothSocket}
  */
@@ -239,7 +245,7 @@ public final class BluetoothDevice implements Parcelable {
     public static final String EXTRA_PAIRING_VARIANT =
             "android.bluetooth.device.extra.PAIRING_VARIANT";
     /** @hide */
-    public static final String EXTRA_PASSKEY = "android.bluetooth.device.extra.PASSKEY";
+    public static final String EXTRA_PAIRING_KEY = "android.bluetooth.device.extra.PAIRING_KEY";
 
     /**
      * Broadcast Action: This intent is used to broadcast the {@link UUID}
@@ -247,13 +253,12 @@ public final class BluetoothDevice implements Parcelable {
      * has been fetched. This intent is sent only when the UUIDs of the remote
      * device are requested to be fetched using Service Discovery Protocol
      * <p> Always contains the extra field {@link #EXTRA_DEVICE}
-     * <p> Always contains the extra filed {@link #EXTRA_UUID}
+     * <p> Always contains the extra field {@link #EXTRA_UUID}
      * <p>Requires {@link android.Manifest.permission#BLUETOOTH} to receive.
-     * @hide
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_UUID =
-            "android.bleutooth.device.action.UUID";
+            "android.bluetooth.device.action.UUID";
 
     /**
      * Broadcast Action: Indicates a failure to retrieve the name of a remote
@@ -290,6 +295,34 @@ public final class BluetoothDevice implements Parcelable {
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_CONNECTION_ACCESS_CANCEL =
             "android.bluetooth.device.action.CONNECTION_ACCESS_CANCEL";
+
+    /**
+     * Used as an extra field in {@link #ACTION_CONNECTION_ACCESS_REQUEST} intent.
+     * @hide
+     */
+    public static final String EXTRA_ACCESS_REQUEST_TYPE =
+        "android.bluetooth.device.extra.ACCESS_REQUEST_TYPE";
+
+    /**@hide*/
+    public static final int REQUEST_TYPE_PROFILE_CONNECTION = 1;
+
+    /**@hide*/
+    public static final int REQUEST_TYPE_PHONEBOOK_ACCESS = 2;
+
+    /**
+     * Used as an extra field in {@link #ACTION_CONNECTION_ACCESS_REQUEST} intents,
+     * Contains package name to return reply intent to.
+     * @hide
+     */
+    public static final String EXTRA_PACKAGE_NAME = "android.bluetooth.device.extra.PACKAGE_NAME";
+
+    /**
+     * Used as an extra field in {@link #ACTION_CONNECTION_ACCESS_REQUEST} intents,
+     * Contains class name to return reply intent to.
+     * @hide
+     */
+    public static final String EXTRA_CLASS_NAME = "android.bluetooth.device.extra.CLASS_NAME";
+
     /**
      * Used as an extra field in {@link #ACTION_CONNECTION_ACCESS_REPLY} intent.
      * @hide
@@ -303,63 +336,126 @@ public final class BluetoothDevice implements Parcelable {
     /**@hide*/
     public static final int CONNECTION_ACCESS_NO = 2;
 
-    /** A bond attempt succeeded
-     * @hide */
+    /**
+     * Used as an extra field in {@link #ACTION_CONNECTION_ACCESS_REPLY} intents,
+     * Contains boolean to indicate if the allowed response is once-for-all so that
+     * next request will be granted without asking user again.
+     * @hide
+     */
+    public static final String EXTRA_ALWAYS_ALLOWED =
+        "android.bluetooth.device.extra.ALWAYS_ALLOWED";
+
+    /**
+     * A bond attempt succeeded
+     * @hide
+     */
     public static final int BOND_SUCCESS = 0;
-    /** A bond attempt failed because pins did not match, or remote device did
+
+    /**
+     * A bond attempt failed because pins did not match, or remote device did
      * not respond to pin request in time
-     * @hide */
+     * @hide
+     */
     public static final int UNBOND_REASON_AUTH_FAILED = 1;
-    /** A bond attempt failed because the other side explicitly rejected
+
+    /**
+     * A bond attempt failed because the other side explicitly rejected
      * bonding
-     * @hide */
+     * @hide
+     */
     public static final int UNBOND_REASON_AUTH_REJECTED = 2;
-    /** A bond attempt failed because we canceled the bonding process
-     * @hide */
+
+    /**
+     * A bond attempt failed because we canceled the bonding process
+     * @hide
+     */
     public static final int UNBOND_REASON_AUTH_CANCELED = 3;
-    /** A bond attempt failed because we could not contact the remote device
-     * @hide */
+
+    /**
+     * A bond attempt failed because we could not contact the remote device
+     * @hide
+     */
     public static final int UNBOND_REASON_REMOTE_DEVICE_DOWN = 4;
-    /** A bond attempt failed because a discovery is in progress
-     * @hide */
+
+    /**
+     * A bond attempt failed because a discovery is in progress
+     * @hide
+     */
     public static final int UNBOND_REASON_DISCOVERY_IN_PROGRESS = 5;
-    /** A bond attempt failed because of authentication timeout
-     * @hide */
+
+    /**
+     * A bond attempt failed because of authentication timeout
+     * @hide
+     */
     public static final int UNBOND_REASON_AUTH_TIMEOUT = 6;
-    /** A bond attempt failed because of repeated attempts
-     * @hide */
+
+    /**
+     * A bond attempt failed because of repeated attempts
+     * @hide
+     */
     public static final int UNBOND_REASON_REPEATED_ATTEMPTS = 7;
-    /** A bond attempt failed because we received an Authentication Cancel
-     *  by remote end
-     * @hide */
+
+    /**
+     * A bond attempt failed because we received an Authentication Cancel
+     * by remote end
+     * @hide
+     */
     public static final int UNBOND_REASON_REMOTE_AUTH_CANCELED = 8;
-    /** An existing bond was explicitly revoked
-     * @hide */
+
+    /**
+     * An existing bond was explicitly revoked
+     * @hide
+     */
     public static final int UNBOND_REASON_REMOVED = 9;
 
-    /** The user will be prompted to enter a pin
-     * @hide */
+    /**
+     * The user will be prompted to enter a pin
+     * @hide
+     */
     public static final int PAIRING_VARIANT_PIN = 0;
-    /** The user will be prompted to enter a passkey
-     * @hide */
+
+    /**
+     * The user will be prompted to enter a passkey
+     * @hide
+     */
     public static final int PAIRING_VARIANT_PASSKEY = 1;
-    /** The user will be prompted to confirm the passkey displayed on the screen
-     * @hide */
+
+    /**
+     * The user will be prompted to confirm the passkey displayed on the screen
+     * @hide
+     */
     public static final int PAIRING_VARIANT_PASSKEY_CONFIRMATION = 2;
-    /** The user will be prompted to accept or deny the incoming pairing request
-     * @hide */
+
+    /**
+     * The user will be prompted to accept or deny the incoming pairing request
+     * @hide
+     */
     public static final int PAIRING_VARIANT_CONSENT = 3;
-    /** The user will be prompted to enter the passkey displayed on remote device
-     * @hide */
+
+    /**
+     * The user will be prompted to enter the passkey displayed on remote device
+     * This is used for Bluetooth 2.1 pairing.
+     * @hide
+     */
     public static final int PAIRING_VARIANT_DISPLAY_PASSKEY = 4;
-    /** The user will be prompted to accept or deny the OOB pairing request
-     * @hide */
-    public static final int PAIRING_VARIANT_OOB_CONSENT = 5;
+
+    /**
+     * The user will be prompted to enter the PIN displayed on remote device.
+     * This is used for Bluetooth 2.0 pairing.
+     * @hide
+     */
+    public static final int PAIRING_VARIANT_DISPLAY_PIN = 5;
+
+    /**
+     * The user will be prompted to accept or deny the OOB pairing request
+     * @hide
+     */
+    public static final int PAIRING_VARIANT_OOB_CONSENT = 6;
+
     /**
      * Used as an extra field in {@link #ACTION_UUID} intents,
      * Contains the {@link android.os.ParcelUuid}s of the remote device which
      * is a parcelable version of {@link UUID}.
-     * @hide
      */
     public static final String EXTRA_UUID = "android.bluetooth.device.extra.UUID";
 
@@ -471,6 +567,54 @@ public final class BluetoothDevice implements Parcelable {
             return sService.getRemoteName(mAddress);
         } catch (RemoteException e) {Log.e(TAG, "", e);}
         return null;
+    }
+
+    /**
+     * Get the Bluetooth alias of the remote device.
+     * <p>Alias is the locally modified name of a remote device.
+     *
+     * @return the Bluetooth alias, or null if no alias or there was a problem
+     * @hide
+     */
+    public String getAlias() {
+        try {
+            return sService.getRemoteAlias(mAddress);
+        } catch (RemoteException e) {Log.e(TAG, "", e);}
+        return null;
+    }
+
+    /**
+     * Set the Bluetooth alias of the remote device.
+     * <p>Alias is the locally modified name of a remote device.
+     * <p>This methoid overwrites the alias. The changed
+     * alias is saved in the local storage so that the change
+     * is preserved over power cycle.
+     *
+     * @return true on success, false on error
+     * @hide
+     */
+    public boolean setAlias(String alias) {
+        try {
+            return sService.setRemoteAlias(mAddress, alias);
+        } catch (RemoteException e) {Log.e(TAG, "", e);}
+        return false;
+    }
+
+    /**
+     * Get the Bluetooth alias of the remote device.
+     * If Alias is null, get the Bluetooth name instead.
+     * @see #getAlias()
+     * @see #getName()
+     *
+     * @return the Bluetooth alias, or null if no alias or there was a problem
+     * @hide
+     */
+    public String getAliasName() {
+        String name = getAlias();
+        if (name == null) {
+            name = getName();
+        }
+        return name;
     }
 
     /**
@@ -630,7 +774,18 @@ public final class BluetoothDevice implements Parcelable {
         return false;
     }
 
-    /** @hide */
+    /**
+     * Returns the supported features (UUIDs) of the remote device.
+     *
+     * <p>This method does not start a service discovery procedure to retrieve the UUIDs
+     * from the remote device. Instead, the local cached copy of the service
+     * UUIDs are returned.
+     * <p>Use {@link #fetchUuidsWithSdp} if fresh UUIDs are desired.
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH}.
+     *
+     * @return the supported features (UUIDs) of the remote device,
+     *         or null on error
+     */
      public ParcelUuid[] getUuids() {
         try {
             return sService.getRemoteUuids(mAddress);
@@ -639,18 +794,19 @@ public final class BluetoothDevice implements Parcelable {
     }
 
      /**
-      *  Perform a SDP query on the remote device to get the UUIDs
-      *  supported. This API is asynchronous and an Intent is sent,
-      *  with the UUIDs supported by the remote end. If there is an error
-      *  in getting the SDP records or if the process takes a long time,
-      *  an Intent is sent with the UUIDs that is currently present in the
-      *  cache. Clients should use the {@link #getUuids} to get UUIDs
-      *  is SDP is not to be performed.
+      * Perform a service discovery on the remote device to get the UUIDs supported.
       *
-      *  @return False if the sanity check fails, True if the process
+      * <p>This API is asynchronous and {@link #ACTION_UUID} intent is sent,
+      * with the UUIDs supported by the remote end. If there is an error
+      * in getting the SDP records or if the process takes a long time,
+      * {@link #ACTION_UUID} intent is sent with the UUIDs that is currently
+      * present in the cache. Clients should use the {@link #getUuids} to get UUIDs
+      * if service discovery is not to be performed.
+      * <p>Requires {@link android.Manifest.permission#BLUETOOTH}.
+      *
+      * @return False if the sanity check fails, True if the process
       *               of initiating an ACL connection to the remote device
       *               was started.
-      *  @hide
       */
      public boolean fetchUuidsWithSdp() {
         try {
@@ -769,7 +925,7 @@ public final class BluetoothDevice implements Parcelable {
      * using the well-known SPP UUID 00001101-0000-1000-8000-00805F9B34FB.
      * However if you are connecting to an Android peer then please generate
      * your own unique UUID.
-         * <p>Requires {@link android.Manifest.permission#BLUETOOTH}
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH}
      *
      * @param uuid service record uuid to lookup RFCOMM channel
      * @return a RFCOMM BluetoothServerSocket ready for an outgoing connection

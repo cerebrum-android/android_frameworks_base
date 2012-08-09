@@ -37,6 +37,13 @@ import javax.sip.address.URI;
  * <p>You can create a {@link SipProfile} using {@link
  * SipProfile.Builder}. You can also retrieve one from a {@link SipSession}, using {@link
  * SipSession#getLocalProfile} and {@link SipSession#getPeerProfile}.</p>
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using SIP, read the
+ * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
+ * developer guide.</p>
+ * </div>
  */
 public class SipProfile implements Parcelable, Serializable, Cloneable {
     private static final long serialVersionUID = 1L;
@@ -150,9 +157,8 @@ public class SipProfile implements Parcelable, Serializable, Cloneable {
         /**
          * Sets the username used for authentication.
          *
-         * @param name auth. name of the profile
+         * @param name authentication username of the profile
          * @return this builder object
-         * @hide // TODO: remove when we make it public
          */
         public Builder setAuthUserName(String name) {
             mProfile.mAuthUserName = name;
@@ -391,10 +397,10 @@ public class SipProfile implements Parcelable, Serializable, Cloneable {
 
     /**
      * Gets the username for authentication. If it is null, then the username
-     * should be used in authentication instead.
+     * is used in authentication instead.
      *
-     * @return the auth. username
-     * @hide // TODO: remove when we make it public
+     * @return the authentication username
+     * @see #getUserName
      */
     public String getAuthUserName() {
         return mAuthUserName;

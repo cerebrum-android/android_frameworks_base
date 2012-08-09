@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,14 +45,13 @@ final class GeolocationService implements LocationListener {
 
     /**
      * Constructor
+     * @param context The context from which we obtain the system service.
      * @param nativeObject The native object to which this object will report position updates and
      *     errors.
      */
-    public GeolocationService(long nativeObject) {
+    public GeolocationService(Context context, long nativeObject) {
         mNativeObject = nativeObject;
         // Register newLocationAvailable with platform service.
-        ActivityThread thread = ActivityThread.systemMain();
-        Context context = thread.getApplication();
         mLocationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
         if (mLocationManager == null) {
             Log.e(TAG, "Could not get location manager.");
@@ -63,9 +61,10 @@ final class GeolocationService implements LocationListener {
     /**
      * Start listening for location updates.
      */
-    public void start() {
+    public boolean start() {
         registerForLocationUpdates();
         mIsRunning = true;
+        return mIsNetworkProviderAvailable || mIsGpsProviderAvailable;
     }
 
     /**
@@ -88,6 +87,8 @@ final class GeolocationService implements LocationListener {
                 // only unregister from all, then reregister with all but the GPS.
                 unregisterFromLocationUpdates();
                 registerForLocationUpdates();
+                // Check that the providers are still available after we re-register.
+                maybeReportError("The last location provider is no longer available");
             }
         }
     }
@@ -157,21 +158,20 @@ final class GeolocationService implements LocationListener {
      */
     private void registerForLocationUpdates() {
         try {
-            mLocationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, this);
-            mIsNetworkProviderAvailable = true;
+            // Registration may fail if providers are not present on the device.
+            try {
+                mLocationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, this);
+                mIsNetworkProviderAvailable = true;
+            } catch(IllegalArgumentException e) { }
             if (mIsGpsEnabled) {
-                mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
-                mIsGpsProviderAvailable = true;
+                try {
+                    mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
+                    mIsGpsProviderAvailable = true;
+                } catch(IllegalArgumentException e) { }
             }
         } catch(SecurityException e) {
             Log.e(TAG, "Caught security exception registering for location updates from system. " +
                 "This should only happen in DumpRenderTree.");
-        } catch(IllegalArgumentException e) {
-            Log.e(TAG, "Caught IllegalArugument Exception: Either provider or listener is null");
-            e.printStackTrace();
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Caught RuntimeException");
-            e.printStackTrace();
         }
     }
 
@@ -180,6 +180,8 @@ final class GeolocationService implements LocationListener {
      */
     private void unregisterFromLocationUpdates() {
         mLocationManager.removeUpdates(this);
+        mIsNetworkProviderAvailable = false;
+        mIsGpsProviderAvailable = false;
     }
 
     /**

@@ -18,15 +18,17 @@
 package com.android.internal.app;
 
 import android.app.ActivityManagerNative;
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.IActivityManager;
 import android.app.ProgressDialog;
-import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.IBluetooth;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Power;
 import android.os.PowerManager;
@@ -40,8 +42,8 @@ import android.os.storage.IMountShutdownObserver;
 
 import com.android.internal.telephony.ITelephony;
 import android.util.Log;
-import android.view.KeyEvent;
 import android.view.WindowManager;
+import android.view.KeyEvent;
 
 public final class ShutdownThread extends Thread {
     // constants
@@ -72,7 +74,8 @@ public final class ShutdownThread extends Thread {
     private boolean mActionDone;
     private Context mContext;
     private PowerManager mPowerManager;
-    private PowerManager.WakeLock mWakeLock;
+    private PowerManager.WakeLock mCpuWakeLock;
+    private PowerManager.WakeLock mScreenWakeLock;
     private Handler mHandler;
     
     private ShutdownThread() {
@@ -96,7 +99,13 @@ public final class ShutdownThread extends Thread {
             }
         }
 
-        Log.d(TAG, "Notifying thread to start radio shutdown");
+        final int longPressBehavior = context.getResources().getInteger(
+                        com.android.internal.R.integer.config_longPressOnPowerBehavior);
+        final int resourceId = longPressBehavior == 2
+                ? com.android.internal.R.string.shutdown_confirm_question
+                : com.android.internal.R.string.shutdown_confirm;
+
+        Log.d(TAG, "Notifying thread to start shutdown longPressBehavior=" + longPressBehavior);
 
         if (confirm) {
             final AlertDialog dialog;
@@ -138,6 +147,9 @@ public final class ShutdownThread extends Thread {
                                 return true;
                             }
                         });
+                // Initialize to the first reason
+                String actions[] = context.getResources().getStringArray(com.android.internal.R.array.shutdown_reboot_actions);
+                mRebootReason = actions[0];
             } else {
                 dialog = new AlertDialog.Builder(context)
                         .setIcon(android.R.drawable.ic_dialog_alert)
@@ -152,13 +164,30 @@ public final class ShutdownThread extends Thread {
                         .create();
             }
             dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
-            if (!context.getResources().getBoolean(
-                    com.android.internal.R.bool.config_sf_slowBlur)) {
-                dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
-            }
             dialog.show();
         } else {
             beginShutdownSequence(context);
+        }
+    }
+
+    private static class CloseDialogReceiver extends BroadcastReceiver
+            implements DialogInterface.OnDismissListener {
+        private Context mContext;
+        public Dialog dialog;
+
+        CloseDialogReceiver(Context context) {
+            mContext = context;
+            IntentFilter filter = new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+            context.registerReceiver(this, filter);
+        }
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            dialog.cancel();
+        }
+
+        public void onDismiss(DialogInterface unused) {
+            mContext.unregisterReceiver(this);
         }
     }
 
@@ -180,7 +209,7 @@ public final class ShutdownThread extends Thread {
     private static void beginShutdownSequence(Context context) {
         synchronized (sIsStartedGuard) {
             if (sIsStarted) {
-                Log.d(TAG, "Request to shutdown already running, returning.");
+                Log.d(TAG, "Shutdown sequence already running, returning.");
                 return;
             }
             sIsStarted = true;
@@ -199,27 +228,39 @@ public final class ShutdownThread extends Thread {
         pd.setIndeterminate(true);
         pd.setCancelable(false);
         pd.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
-        if (!context.getResources().getBoolean(
-                com.android.internal.R.bool.config_sf_slowBlur)) {
-            pd.getWindow().addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
-        }
 
         pd.show();
 
-        // start the thread that initiates shutdown
         sInstance.mContext = context;
         sInstance.mPowerManager = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
-        sInstance.mWakeLock = null;
+
+        // make sure we never fall asleep again
+        sInstance.mCpuWakeLock = null;
+        try {
+            sInstance.mCpuWakeLock = sInstance.mPowerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, TAG + "-cpu");
+            sInstance.mCpuWakeLock.setReferenceCounted(false);
+            sInstance.mCpuWakeLock.acquire();
+        } catch (SecurityException e) {
+            Log.w(TAG, "No permission to acquire wake lock", e);
+            sInstance.mCpuWakeLock = null;
+        }
+
+        // also make sure the screen stays on for better user experience
+        sInstance.mScreenWakeLock = null;
         if (sInstance.mPowerManager.isScreenOn()) {
             try {
-                sInstance.mWakeLock = sInstance.mPowerManager.newWakeLock(
-                        PowerManager.FULL_WAKE_LOCK, "Shutdown");
-                sInstance.mWakeLock.acquire();
+                sInstance.mScreenWakeLock = sInstance.mPowerManager.newWakeLock(
+                        PowerManager.FULL_WAKE_LOCK, TAG + "-screen");
+                sInstance.mScreenWakeLock.setReferenceCounted(false);
+                sInstance.mScreenWakeLock.acquire();
             } catch (SecurityException e) {
                 Log.w(TAG, "No permission to acquire wake lock", e);
-                sInstance.mWakeLock = null;
+                sInstance.mScreenWakeLock = null;
             }
         }
+
+        // start the thread that initiates shutdown
         sInstance.mHandler = new Handler() {
         };
         sInstance.start();

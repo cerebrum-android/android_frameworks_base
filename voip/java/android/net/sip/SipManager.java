@@ -49,9 +49,16 @@ import java.text.ParseException;
  * SIP. You should always call {@link android.net.sip.SipManager#isVoipSupported
  * isVoipSupported()} to verify that the device supports VOIP calling and {@link
  * android.net.sip.SipManager#isApiSupported isApiSupported()} to verify that the device supports
- * the SIP APIs.<br/><br/>Your application must also request the {@link
+ * the SIP APIs. Your application must also request the {@link
  * android.Manifest.permission#INTERNET} and {@link android.Manifest.permission#USE_SIP}
  * permissions.</p>
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using SIP, read the
+ * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
+ * developer guide.</p>
+ * </div>
  */
 public class SipManager {
     /**
@@ -471,6 +478,10 @@ public class SipManager {
         try {
             ISipSession session = mSipService.createSession(localProfile,
                     createRelay(listener, localProfile.getUriString()));
+            if (session == null) {
+                throw new SipException(
+                        "SipService.createSession() returns null");
+            }
             session.register(expiryTime);
         } catch (RemoteException e) {
             throw new SipException("register()", e);
@@ -492,6 +503,10 @@ public class SipManager {
         try {
             ISipSession session = mSipService.createSession(localProfile,
                     createRelay(listener, localProfile.getUriString()));
+            if (session == null) {
+                throw new SipException(
+                        "SipService.createSession() returns null");
+            }
             session.unregister();
         } catch (RemoteException e) {
             throw new SipException("unregister()", e);
@@ -513,7 +528,7 @@ public class SipManager {
         try {
             String callId = getCallId(incomingCallIntent);
             ISipSession s = mSipService.getPendingSession(callId);
-            return new SipSession(s);
+            return ((s == null) ? null : new SipSession(s));
         } catch (RemoteException e) {
             throw new SipException("getSessionFor()", e);
         }

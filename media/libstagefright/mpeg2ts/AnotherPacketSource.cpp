@@ -29,8 +29,22 @@
 namespace android {
 
 AnotherPacketSource::AnotherPacketSource(const sp<MetaData> &meta)
-    : mFormat(meta),
+    : mIsAudio(false),
+      mFormat(meta),
       mEOSResult(OK) {
+    const char *mime;
+    CHECK(meta->findCString(kKeyMIMEType, &mime));
+
+    if (!strncasecmp("audio/", mime, 6)) {
+        mIsAudio = true;
+    } else {
+        CHECK(!strncasecmp("video/", mime, 6));
+    }
+}
+
+void AnotherPacketSource::setFormat(const sp<MetaData> &meta) {
+    CHECK(mFormat == NULL);
+    mFormat = meta;
 }
 
 AnotherPacketSource::~AnotherPacketSource() {
@@ -48,6 +62,33 @@ sp<MetaData> AnotherPacketSource::getFormat() {
     return mFormat;
 }
 
+status_t AnotherPacketSource::dequeueAccessUnit(sp<ABuffer> *buffer) {
+    buffer->clear();
+
+    Mutex::Autolock autoLock(mLock);
+    while (mEOSResult == OK && mBuffers.empty()) {
+        mCondition.wait(mLock);
+    }
+
+    if (!mBuffers.empty()) {
+        *buffer = *mBuffers.begin();
+        mBuffers.erase(mBuffers.begin());
+
+        int32_t discontinuity;
+        if ((*buffer)->meta()->findInt32("discontinuity", &discontinuity)) {
+            if (wasFormatChange(discontinuity)) {
+                mFormat.clear();
+            }
+
+            return INFO_DISCONTINUITY;
+        }
+
+        return OK;
+    }
+
+    return mEOSResult;
+}
+
 status_t AnotherPacketSource::read(
         MediaBuffer **out, const ReadOptions *) {
     *out = NULL;
@@ -62,26 +103,35 @@ status_t AnotherPacketSource::read(
         mBuffers.erase(mBuffers.begin());
 
         int32_t discontinuity;
-        if (buffer->meta()->findInt32("discontinuity", &discontinuity)
-                && discontinuity) {
+        if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
+            if (wasFormatChange(discontinuity)) {
+                mFormat.clear();
+            }
+
             return INFO_DISCONTINUITY;
         } else {
-            uint64_t timeUs;
-            CHECK(buffer->meta()->findInt64(
-                        "time", (int64_t *)&timeUs));
+            int64_t timeUs;
+            CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
-            MediaBuffer *mediaBuffer = new MediaBuffer(buffer->size());
+            MediaBuffer *mediaBuffer = new MediaBuffer(buffer);
+
             mediaBuffer->meta_data()->setInt64(kKeyTime, timeUs);
 
-            // hexdump(buffer->data(), buffer->size());
-
-            memcpy(mediaBuffer->data(), buffer->data(), buffer->size());
             *out = mediaBuffer;
             return OK;
         }
     }
 
     return mEOSResult;
+}
+
+bool AnotherPacketSource::wasFormatChange(
+        int32_t discontinuityType) const {
+    if (mIsAudio) {
+        return (discontinuityType & ATSParser::DISCONTINUITY_AUDIO_FORMAT) != 0;
+    }
+
+    return (discontinuityType & ATSParser::DISCONTINUITY_VIDEO_FORMAT) != 0;
 }
 
 void AnotherPacketSource::queueAccessUnit(const sp<ABuffer> &buffer) {
@@ -92,7 +142,7 @@ void AnotherPacketSource::queueAccessUnit(const sp<ABuffer> &buffer) {
     }
 
     int64_t timeUs;
-    CHECK(buffer->meta()->findInt64("time", &timeUs));
+    CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
     LOGV("queueAccessUnit timeUs=%lld us (%.2f secs)", timeUs, timeUs / 1E6);
 
     Mutex::Autolock autoLock(mLock);
@@ -100,20 +150,34 @@ void AnotherPacketSource::queueAccessUnit(const sp<ABuffer> &buffer) {
     mCondition.signal();
 }
 
-void AnotherPacketSource::queueDiscontinuity() {
-    sp<ABuffer> buffer = new ABuffer(0);
-    buffer->meta()->setInt32("discontinuity", true);
-
+void AnotherPacketSource::queueDiscontinuity(
+        ATSParser::DiscontinuityType type,
+        const sp<AMessage> &extra) {
     Mutex::Autolock autoLock(mLock);
+
+    // Leave only discontinuities in the queue.
+    List<sp<ABuffer> >::iterator it = mBuffers.begin();
+    while (it != mBuffers.end()) {
+        sp<ABuffer> oldBuffer = *it;
+
+        int32_t oldDiscontinuityType;
+        if (!oldBuffer->meta()->findInt32(
+                    "discontinuity", &oldDiscontinuityType)) {
+            it = mBuffers.erase(it);
+            continue;
+        }
+
+        ++it;
+    }
+
+    mEOSResult = OK;
+
+    sp<ABuffer> buffer = new ABuffer(0);
+    buffer->meta()->setInt32("discontinuity", static_cast<int32_t>(type));
+    buffer->meta()->setMessage("extra", extra);
 
     mBuffers.push_back(buffer);
     mCondition.signal();
-}
-
-void AnotherPacketSource::clear() {
-    Mutex::Autolock autoLock(mLock);
-    mBuffers.clear();
-    mEOSResult = OK;
 }
 
 void AnotherPacketSource::signalEOS(status_t result) {
@@ -132,6 +196,21 @@ bool AnotherPacketSource::hasBufferAvailable(status_t *finalResult) {
 
     *finalResult = mEOSResult;
     return false;
+}
+
+status_t AnotherPacketSource::nextBufferTime(int64_t *timeUs) {
+    *timeUs = 0;
+
+    Mutex::Autolock autoLock(mLock);
+
+    if (mBuffers.empty()) {
+        return mEOSResult != OK ? mEOSResult : -EWOULDBLOCK;
+    }
+
+    sp<ABuffer> buffer = *mBuffers.begin();
+    CHECK(buffer->meta()->findInt64("timeUs", timeUs));
+
+    return OK;
 }
 
 }  // namespace android

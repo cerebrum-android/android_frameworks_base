@@ -37,6 +37,12 @@ import java.lang.reflect.Method;
  * New tests should be written using this base class.
  * 
  * <p>If you prefer an isolated unit test, see {@link android.test.ActivityUnitTestCase}.
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about application testing, read the
+ * <a href="{@docRoot}guide/topics/testing/index.html">Testing</a> developer guide.</p>
+ * </div>
  */
 public abstract class ActivityInstrumentationTestCase2<T extends Activity> 
         extends ActivityTestCase {
@@ -147,8 +153,8 @@ public abstract class ActivityInstrumentationTestCase2<T extends Activity>
     protected void setUp() throws Exception {
         super.setUp();
         
-        boolean mInitialTouchMode = false;
-        Intent mActivityIntent = null;
+        mInitialTouchMode = false;
+        mActivityIntent = null;
     }
 
     @Override

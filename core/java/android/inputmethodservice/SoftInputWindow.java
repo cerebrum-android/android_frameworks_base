@@ -18,10 +18,11 @@ package android.inputmethodservice;
 
 import android.app.Dialog;
 import android.content.Context;
-import android.content.pm.ActivityInfo;
+import android.graphics.Rect;
 import android.os.IBinder;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.WindowManager;
 
 /**
@@ -32,6 +33,7 @@ import android.view.WindowManager;
  */
 class SoftInputWindow extends Dialog {
     final KeyEvent.DispatcherState mDispatcherState;
+    private final Rect mBounds = new Rect();
     
     public void setToken(IBinder token) {
         WindowManager.LayoutParams lp = getWindow().getAttributes();
@@ -40,7 +42,7 @@ class SoftInputWindow extends Dialog {
     }
     
     /**
-     * Create a DockWindow that uses a custom style.
+     * Create a SoftInputWindow that uses a custom style.
      * 
      * @param context The Context in which the DockWindow should run. In
      *        particular, it uses the window manager and theme from this context
@@ -62,6 +64,22 @@ class SoftInputWindow extends Dialog {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         mDispatcherState.reset();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        getWindow().getDecorView().getHitRect(mBounds);
+
+        if (ev.isWithinBoundsNoHistory(mBounds.left, mBounds.top,
+                mBounds.right - 1, mBounds.bottom - 1)) {
+            return super.dispatchTouchEvent(ev);
+        } else {
+            MotionEvent temp = ev.clampNoHistory(mBounds.left, mBounds.top,
+                    mBounds.right - 1, mBounds.bottom - 1);
+            boolean handled = super.dispatchTouchEvent(temp);
+            temp.recycle();
+            return handled;
+        }
     }
 
     /**

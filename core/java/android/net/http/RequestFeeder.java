@@ -29,7 +29,6 @@ interface RequestFeeder {
 
     Request getRequest();
     Request getRequest(HttpHost host);
-    Request peekRequest();
 
     /**
      * @return true if a request for this host is available
@@ -40,5 +39,4 @@ interface RequestFeeder {
      * Put request back on head of queue
      */
     void requeueRequest(Request request);
-    void requeueRequest(Request request, boolean commit, boolean notif);
 }

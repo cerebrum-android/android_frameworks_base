@@ -110,6 +110,37 @@ public interface IBinder {
     int INTERFACE_TRANSACTION   = ('_'<<24)|('N'<<16)|('T'<<8)|'F';
 
     /**
+     * IBinder protocol transaction code: send a tweet to the target
+     * object.  The data in the parcel is intended to be delivered to
+     * a shared messaging service associated with the object; it can be
+     * anything, as long as it is not more than 130 UTF-8 characters to
+     * conservatively fit within common messaging services.  As part of
+     * {@link Build.VERSION_CODES#HONEYCOMB_MR2}, all Binder objects are
+     * expected to support this protocol for fully integrated tweeting
+     * across the platform.  To support older code, the default implementation
+     * logs the tweet to the main log as a simple emulation of broadcasting
+     * it publicly over the Internet.
+     * 
+     * <p>Also, upon completing the dispatch, the object must make a cup
+     * of tea, return it to the caller, and exclaim "jolly good message
+     * old boy!".
+     */
+    int TWEET_TRANSACTION   = ('_'<<24)|('T'<<16)|('W'<<8)|'T';
+
+    /**
+     * IBinder protocol transaction code: tell an app asynchronously that the
+     * caller likes it.  The app is responsible for incrementing and maintaining
+     * its own like counter, and may display this value to the user to indicate the
+     * quality of the app.  This is an optional command that applications do not
+     * need to handle, so the default implementation is to do nothing.
+     * 
+     * <p>There is no response returned and nothing about the
+     * system will be functionally affected by it, but it will improve the
+     * app's self-esteem.
+     */
+    int LIKE_TRANSACTION   = ('_'<<24)|('L'<<16)|('I'<<8)|'K';
+
+    /**
      * Flag to {@link #transact}: this is a one-way call, meaning that the
      * caller returns immediately, without waiting for a result from the
      * callee. Applies only if the caller and callee are in different
@@ -157,12 +188,22 @@ public interface IBinder {
     public void dump(FileDescriptor fd, String[] args) throws RemoteException;
     
     /**
+     * Like {@link #dump(FileDescriptor, String[])} but always executes
+     * asynchronously.  If the object is local, a new thread is created
+     * to perform the dump.
+     *
+     * @param fd The raw file descriptor that the dump is being sent to.
+     * @param args additional arguments to the dump request.
+     */
+    public void dumpAsync(FileDescriptor fd, String[] args) throws RemoteException;
+
+    /**
      * Perform a generic operation with the object.
      * 
      * @param code The action to perform.  This should
      * be a number between {@link #FIRST_CALL_TRANSACTION} and
      * {@link #LAST_CALL_TRANSACTION}.
-     * @param data Marshalled data to send to the target.  Most not be null.
+     * @param data Marshalled data to send to the target.  Must not be null.
      * If you are not sending any data, you must create an empty Parcel
      * that is given here.
      * @param reply Marshalled data to be received from the target.  May be

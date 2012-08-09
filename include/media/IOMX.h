@@ -19,7 +19,7 @@
 #define ANDROID_IOMX_H_
 
 #include <binder/IInterface.h>
-#include <binder/MemoryHeapBase.h>
+#include <ui/GraphicBuffer.h>
 #include <utils/List.h>
 #include <utils/String8.h>
 
@@ -33,7 +33,6 @@ namespace android {
 class IMemory;
 class IOMXObserver;
 class IOMXRenderer;
-class ISurface;
 class Surface;
 
 class IOMX : public IInterface {
@@ -79,9 +78,25 @@ public:
             node_id node, OMX_INDEXTYPE index,
             const void *params, size_t size) = 0;
 
+    virtual status_t getState(
+            node_id node, OMX_STATETYPE* state) = 0;
+
+    virtual status_t storeMetaDataInBuffers(
+            node_id node, OMX_U32 port_index, OMX_BOOL enable) = 0;
+
+    virtual status_t enableGraphicBuffers(
+            node_id node, OMX_U32 port_index, OMX_BOOL enable) = 0;
+
+    virtual status_t getGraphicBufferUsage(
+            node_id node, OMX_U32 port_index, OMX_U32* usage) = 0;
+
     virtual status_t useBuffer(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
             buffer_id *buffer) = 0;
+
+    virtual status_t useGraphicBuffer(
+            node_id node, OMX_U32 port_index,
+            const sp<GraphicBuffer> &graphicBuffer, buffer_id *buffer) = 0;
 
     // This API clearly only makes sense if the caller lives in the
     // same process as the callee, i.e. is the media_server, as the
@@ -110,56 +125,6 @@ public:
             node_id node,
             const char *parameter_name,
             OMX_INDEXTYPE *index) = 0;
-
-    virtual sp<IOMXRenderer> createRenderer(
-            const sp<ISurface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight,
-            int32_t rotationDegrees) = 0;
-
-    // Note: These methods are _not_ virtual, it exists as a wrapper around
-    // the virtual "createRenderer" method above facilitating extraction
-    // of the ISurface from a regular Surface or a java Surface object.
-    sp<IOMXRenderer> createRenderer(
-            const sp<Surface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight,
-            int32_t rotationDegrees);
-
-    sp<IOMXRenderer> createRendererFromJavaSurface(
-            JNIEnv *env, jobject javaSurface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight,
-            int32_t rotationDegrees);
-
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    virtual status_t useBuffer(
-            node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer, size_t size) = 0;
-#endif
-
-#ifdef OMAP_ENHANCEMENT
-    sp<IOMXRenderer> createRenderer(
-            const sp<Surface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight, int32_t rotation, int isS3D, int numOfOpBuffers = -1);
-
-        virtual sp<IOMXRenderer> createRenderer(
-            const sp<ISurface> &surface,
-            const char *componentName,
-            OMX_COLOR_FORMATTYPE colorFormat,
-            size_t encodedWidth, size_t encodedHeight,
-            size_t displayWidth, size_t displayHeight, int32_t rotation, int isS3D, int numOfOpBuffers = -1) = 0;
-
-#endif
 };
 
 struct omx_message {
@@ -167,9 +132,6 @@ struct omx_message {
         EVENT,
         EMPTY_BUFFER_DONE,
         FILL_BUFFER_DONE,
-#ifndef OMAP_ENHANCEMENT
-        REGISTER_BUFFERS
-#endif
 
     } type;
 
@@ -197,7 +159,6 @@ struct omx_message {
             OMX_TICKS timestamp;
             OMX_PTR platform_private;
             OMX_PTR data_ptr;
-            OMX_U32 pmem_offset;
         } extended_buffer_data;
 
     } u;
@@ -208,27 +169,6 @@ public:
     DECLARE_META_INTERFACE(OMXObserver);
 
     virtual void onMessage(const omx_message &msg) = 0;
-#ifndef OMAP_ENHANCEMENT
-    virtual void registerBuffers(const sp<IMemoryHeap> &mem) = 0;
-#endif
-};
-
-#ifdef OMAP_ENHANCEMENT
-typedef void (*release_rendered_buffer_callback)(const sp<IMemory>& mem, void* cookie);
-#endif
-
-class IOMXRenderer : public IInterface {
-public:
-    DECLARE_META_INTERFACE(OMXRenderer);
-
-    virtual void render(IOMX::buffer_id buffer) = 0;
-#ifdef OMAP_ENHANCEMENT
-    virtual Vector< sp<IMemory> > getBuffers() = 0;
-    virtual bool setCallback(release_rendered_buffer_callback cb, void *cookie) = 0;
-    virtual void set_s3d_frame_layout(uint32_t s3d_mode, uint32_t s3d_fmt, uint32_t s3d_order, uint32_t s3d_subsampling) =0;
-    virtual void resizeRenderer(void* resize_params) = 0;
-    virtual void requestRendererClone(bool enable) = 0;
-#endif
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -247,11 +187,9 @@ public:
             uint32_t flags = 0);
 };
 
-class BnOMXRenderer : public BnInterface<IOMXRenderer> {
-public:
-    virtual status_t onTransact(
-            uint32_t code, const Parcel &data, Parcel *reply,
-            uint32_t flags = 0);
+struct CodecProfileLevel {
+    OMX_U32 mProfile;
+    OMX_U32 mLevel;
 };
 
 }  // namespace android

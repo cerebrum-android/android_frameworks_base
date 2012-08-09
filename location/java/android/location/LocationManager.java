@@ -42,6 +42,13 @@ import java.util.List;
  * instantiate this class directly; instead, retrieve it through
  * {@link android.content.Context#getSystemService
  * Context.getSystemService(Context.LOCATION_SERVICE)}.
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about using location services, read the
+ * <a href="{@docRoot}guide/topics/location/index.html">Location and Maps</a>
+ * developer guide.</p>
+ * </div>
  */
 public class LocationManager {
     private static final String TAG = "LocationManager";
@@ -715,15 +722,13 @@ public class LocationManager {
     }
 
     /**
-     * Registers the current activity to be notified periodically by
-     * the named provider.  Periodically, the supplied LocationListener will
-     * be called with the current Location or with status updates.
+     * Requests a single location update from the named provider.
      *
      * <p> It may take a while to receive the most recent location. If
      * an immediate location is required, applications may use the
      * {@link #getLastKnownLocation(String)} method.
      *
-     * <p> In case the provider is disabled by the user, updates will stop,
+     * <p> In case the provider is disabled by the user, the update will not be received,
      * and the {@link LocationListener#onProviderDisabled(String)}
      * method will be called. As soon as the provider is enabled again,
      * the {@link LocationListener#onProviderEnabled(String)} method will
@@ -733,8 +738,8 @@ public class LocationManager {
      *
      * @param provider the name of the provider with which to register
      * @param listener a {#link LocationListener} whose
-     * {@link LocationListener#onLocationChanged} method will be called for
-     * each location update
+     * {@link LocationListener#onLocationChanged} method will be called when
+     * the location update is available
      * @param looper a Looper object whose message queue will be used to
      * implement the callback mechanism.
      * If looper is null then the callbacks will be called on the main thread.
@@ -754,15 +759,13 @@ public class LocationManager {
     }
 
     /**
-     * Registers the current activity to be notified periodically based on
-     * the specified criteria.  Periodically, the supplied LocationListener will
-     * be called with the current Location or with status updates.
+     * Requests a single location update based on the specified criteria.
      *
      * <p> It may take a while to receive the most recent location. If
      * an immediate location is required, applications may use the
      * {@link #getLastKnownLocation(String)} method.
      *
-     * <p> In case the provider is disabled by the user, updates will stop,
+     * <p> In case the provider is disabled by the user, the update will not be received,
      * and the {@link LocationListener#onProviderDisabled(String)}
      * method will be called. As soon as the provider is enabled again,
      * the {@link LocationListener#onProviderEnabled(String)} method will
@@ -773,8 +776,8 @@ public class LocationManager {
      * @param criteria contains parameters for the location manager to choose the
      * appropriate provider and parameters to compute the location
      * @param listener a {#link LocationListener} whose
-     * {@link LocationListener#onLocationChanged} method will be called for
-     * each location update
+     * {@link LocationListener#onLocationChanged} method will be called when
+     * the location update is available
      * @param looper a Looper object whose message queue will be used to
      * implement the callback mechanism.
      * If looper is null then the callbacks will be called on the current thread.
@@ -795,15 +798,19 @@ public class LocationManager {
     }
 
     /**
-     * Registers the current activity to be notified periodically by
-     * the named provider.  Periodically, the supplied PendingIntent will
-     * be broadcast with the current Location or with status updates.
-     *
-     * <p> Location updates are sent with a key of KEY_LOCATION_CHANGED and a Location value.
+     * Requests a single location update from the named provider.
      *
      * <p> It may take a while to receive the most recent location. If
      * an immediate location is required, applications may use the
      * {@link #getLastKnownLocation(String)} method.
+     *
+     * <p> Location updates are sent with a key of KEY_LOCATION_CHANGED and a Location value.
+     *
+     * <p> In case the provider is disabled by the user, the update will not be received,
+     * and the {@link LocationListener#onProviderDisabled(String)}
+     * method will be called. As soon as the provider is enabled again,
+     * the {@link LocationListener#onProviderEnabled(String)} method will
+     * be called and location updates will start again.
      *
      * @param provider the name of the provider with which to register
      * @param intent a {#link PendingIntent} to be sent for the location update
@@ -823,15 +830,19 @@ public class LocationManager {
     }
 
     /**
-     * Registers the current activity to be notified periodically based on
-     * the specified criteria.  Periodically, the supplied PendingIntent will
-     * be broadcast with the current Location or with status updates.
-     *
-     * <p> Location updates are sent with a key of KEY_LOCATION_CHANGED and a Location value.
+     * Requests a single location update based on the specified criteria.
      *
      * <p> It may take a while to receive the most recent location. If
      * an immediate location is required, applications may use the
      * {@link #getLastKnownLocation(String)} method.
+     *
+     * <p> Location updates are sent with a key of KEY_LOCATION_CHANGED and a Location value.
+     *
+     * <p> In case the provider is disabled by the user, the update will not be received,
+     * and the {@link LocationListener#onProviderDisabled(String)}
+     * method will be called. As soon as the provider is enabled again,
+     * the {@link LocationListener#onProviderEnabled(String)} method will
+     * be called and location updates will start again.
      *
      * @param criteria contains parameters for the location manager to choose the
      * appropriate provider and parameters to compute the location
@@ -1306,7 +1317,7 @@ public class LocationManager {
      * @param listener GPS status listener object to register
      *
      * @return true if the listener was successfully added
-     * 
+     *
      * @throws SecurityException if the ACCESS_FINE_LOCATION permission is not present
      */
     public boolean addGpsStatusListener(GpsStatus.Listener listener) {
@@ -1430,7 +1441,7 @@ public class LocationManager {
             return false;
         }
     }
-    
+
     /**
      * Used by NetInitiatedActivity to report user response
      * for network initiated GPS fix requests.
@@ -1445,5 +1456,5 @@ public class LocationManager {
             return false;
         }
     }
- 
+
 }

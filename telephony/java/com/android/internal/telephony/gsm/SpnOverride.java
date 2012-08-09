@@ -21,7 +21,6 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.Locale;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -33,37 +32,23 @@ import android.util.Xml;
 import com.android.internal.util.XmlUtils;
 
 public class SpnOverride {
-    private HashMap<String, HashMap<String, String>> mCarrierLocaleSpnMap;
+    private HashMap<String, String> CarrierSpnMap;
 
 
     static final String LOG_TAG = "GSM";
     static final String PARTNER_SPN_OVERRIDE_PATH ="etc/spn-conf.xml";
 
     SpnOverride () {
-        mCarrierLocaleSpnMap = new HashMap<String, HashMap<String, String>>();
+        CarrierSpnMap = new HashMap<String, String>();
         loadSpnOverrides();
     }
 
     boolean containsCarrier(String carrier) {
-        return mCarrierLocaleSpnMap.containsKey(carrier);
+        return CarrierSpnMap.containsKey(carrier);
     }
 
     String getSpn(String carrier) {
-        return getSpn(carrier, Locale.ROOT);
-    }
-
-    String getSpn(String carrier, Locale locale) {
-        HashMap<String, String> localeSpnMap;
-        String localeKey;
-
-        if (carrier == null || locale == null || !containsCarrier(carrier) ||
-                (localeSpnMap = mCarrierLocaleSpnMap.get(carrier)) == null ||
-                !localeSpnMap.containsKey(localeKey = locale.toString()) &&
-                !localeSpnMap.containsKey(localeKey = locale.getLanguage())) {
-            return null;
-        }
-
-        return localeSpnMap.get(localeKey);
+        return CarrierSpnMap.get(carrier);
     }
 
     private void loadSpnOverrides() {
@@ -85,42 +70,19 @@ public class SpnOverride {
             parser.setInput(spnReader);
 
             XmlUtils.beginDocument(parser, "spnOverrides");
-            XmlUtils.nextElement(parser);
 
             while (true) {
+                XmlUtils.nextElement(parser);
+
                 String name = parser.getName();
                 if (!"spnOverride".equals(name)) {
                     break;
                 }
 
                 String numeric = parser.getAttributeValue(null, "numeric");
+                String data    = parser.getAttributeValue(null, "spn");
 
-                if (numeric == null || "".equals(numeric)) {
-                    XmlUtils.nextElement(parser);
-                    while ("spn".equals(parser.getName())) {
-                        XmlUtils.nextElement(parser);
-                    }
-                } else {
-                    HashMap<String, String> localeSpnMap = new HashMap<String, String>();
-                    localeSpnMap.put("", parser.getAttributeValue(null, "spn"));
-
-                    while (true) {
-                        XmlUtils.nextElement(parser);
-
-                        if (!"spn".equals(parser.getName())) {
-                            break;
-                        }
-
-                        String locale = parser.getAttributeValue(null, "locale");
-                        String spn = parser.nextText();
-
-                        if (locale != null && !"".equals(locale)) {
-                            localeSpnMap.put(locale, spn);
-                        }
-                    }
-
-                    mCarrierLocaleSpnMap.put(numeric, localeSpnMap);
-                }
+                CarrierSpnMap.put(numeric, data);
             }
         } catch (XmlPullParserException e) {
             Log.w(LOG_TAG, "Exception in spn-conf parser " + e);

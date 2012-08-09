@@ -17,14 +17,8 @@
 #ifndef AWESOME_PLAYER_H_
 
 #define AWESOME_PLAYER_H_
-#ifdef OMAP_ENHANCEMENT
-#include <utils/Vector.h>
-#if defined(TARGET_OMAP4)
-#include "TISEIMessagesParser.h"
-#endif
-#endif
 
-#include "NuHTTPDataSource.h"
+#include "HTTPBase.h"
 #include "TimedEventQueue.h"
 
 #include <media/MediaPlayerInterface.h>
@@ -32,6 +26,7 @@
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/TimeSource.h>
 #include <utils/threads.h>
+#include <drm/DrmManagerClient.h>
 
 namespace android {
 
@@ -41,24 +36,18 @@ struct MediaBuffer;
 struct MediaExtractor;
 struct MediaSource;
 struct NuCachedSource2;
+struct ISurfaceTexture;
 
-struct ALooper;
-struct ARTSPController;
-struct ARTPSession;
-struct UDPPusher;
+class DrmManagerClinet;
+class DecryptHandle;
+
+class TimedTextPlayer;
+struct WVMExtractor;
 
 struct AwesomeRenderer : public RefBase {
     AwesomeRenderer() {}
 
-    virtual status_t initCheck() const = 0;
     virtual void render(MediaBuffer *buffer) = 0;
-#ifdef OMAP_ENHANCEMENT
-    virtual Vector< sp<IMemory> > getBuffers() = 0;
-    virtual bool setCallback(release_rendered_buffer_callback cb, void *cookie) {return false;}
-    virtual void set_s3d_frame_layout(uint32_t s3d_mode, uint32_t s3d_fmt, uint32_t s3d_order, uint32_t s3d_subsampling){};
-    virtual void resizeRenderer(void* resize_params) = 0;
-    virtual void requestRendererClone(bool enable) = 0;
-#endif
 
 private:
     AwesomeRenderer(const AwesomeRenderer &);
@@ -70,12 +59,15 @@ struct AwesomePlayer {
     ~AwesomePlayer();
 
     void setListener(const wp<MediaPlayerBase> &listener);
+    void setUID(uid_t uid);
 
     status_t setDataSource(
             const char *uri,
             const KeyedVector<String8, String8> *headers = NULL);
 
     status_t setDataSource(int fd, int64_t offset, int64_t length);
+
+    status_t setDataSource(const sp<IStreamSource> &source);
 
     void reset();
 
@@ -89,73 +81,79 @@ struct AwesomePlayer {
 
     bool isPlaying() const;
 
-    void setISurface(const sp<ISurface> &isurface);
+    status_t setSurfaceTexture(const sp<ISurfaceTexture> &surfaceTexture);
     void setAudioSink(const sp<MediaPlayerBase::AudioSink> &audioSink);
     status_t setLooping(bool shouldLoop);
 
     status_t getDuration(int64_t *durationUs);
     status_t getPosition(int64_t *positionUs);
 
+    status_t setParameter(int key, const Parcel &request);
+    status_t getParameter(int key, Parcel *reply);
+    status_t setCacheStatCollectFreq(const Parcel &request);
+
     status_t seekTo(int64_t timeUs);
-
-    status_t getVideoDimensions(int32_t *width, int32_t *height) const;
-
-    status_t suspend();
-    status_t resume();
-#ifdef OMAP_ENHANCEMENT
-    status_t requestVideoCloneMode(bool enable);
-#endif
 
     // This is a mask of MediaExtractor::Flags.
     uint32_t flags() const;
 
-    void postAudioEOS();
+    void postAudioEOS(int64_t delayUs = 0ll);
     void postAudioSeekComplete();
-#ifdef OMAP_ENHANCEMENT
-    void releaseRenderedBuffer(const sp<IMemory>& mem);
-#endif
+
+    status_t setTimedTextTrackIndex(int32_t index);
+
+    status_t dump(int fd, const Vector<String16> &args) const;
+
 private:
     friend struct AwesomeEvent;
+    friend struct PreviewPlayer;
 
     enum {
-        PLAYING             = 1,
-        LOOPING             = 2,
-        FIRST_FRAME         = 4,
-        PREPARING           = 8,
-        PREPARED            = 16,
-        AT_EOS              = 32,
-        PREPARE_CANCELLED   = 64,
-        CACHE_UNDERRUN      = 128,
-        AUDIO_AT_EOS        = 256,
-        VIDEO_AT_EOS        = 512,
-        AUTO_LOOPING        = 1024,
+        PLAYING             = 0x01,
+        LOOPING             = 0x02,
+        FIRST_FRAME         = 0x04,
+        PREPARING           = 0x08,
+        PREPARED            = 0x10,
+        AT_EOS              = 0x20,
+        PREPARE_CANCELLED   = 0x40,
+        CACHE_UNDERRUN      = 0x80,
+        AUDIO_AT_EOS        = 0x0100,
+        VIDEO_AT_EOS        = 0x0200,
+        AUTO_LOOPING        = 0x0400,
+
+        // We are basically done preparing but are currently buffering
+        // sufficient data to begin playback and finish the preparation phase
+        // for good.
+        PREPARING_CONNECTED = 0x0800,
+
+        // We're triggering a single video event to display the first frame
+        // after the seekpoint.
+        SEEK_PREVIEW        = 0x1000,
+
+        AUDIO_RUNNING       = 0x2000,
+        AUDIOPLAYER_STARTED = 0x4000,
+
+        INCOGNITO           = 0x8000,
+
+        TEXT_RUNNING        = 0x10000,
+        TEXTPLAYER_STARTED  = 0x20000,
+
+        SLOW_DECODER_HACK   = 0x40000,
     };
-
-#ifdef OMAP_ENHANCEMENT
-    enum {
-        HOLD_TO_RESUME      = 2048,
-        MAX_RESOLUTION      = 414720, // 864x480(WVGA) - 720x576(D1-PAL)
-    };
-    enum {
-         VID_MODE_NORMAL = 0,
-         VID_MODE_CLONE = 1
-      };
-
-    int mVideoMode;
-#if defined(TARGET_OMAP4)
-    S3D_params mS3Dparams;
-#endif
-#endif
 
     mutable Mutex mLock;
     Mutex mMiscStateLock;
+    mutable Mutex mStatsLock;
+    Mutex mAudioLock;
 
     OMXClient mClient;
     TimedEventQueue mQueue;
     bool mQueueStarted;
     wp<MediaPlayerBase> mListener;
+    bool mUIDValid;
+    uid_t mUID;
 
-    sp<ISurface> mISurface;
+    sp<ANativeWindow> mNativeWindow;
     sp<MediaPlayerBase::AudioSink> mAudioSink;
 
     SystemTimeSource mSystemTimeSource;
@@ -176,14 +174,23 @@ private:
     AudioPlayer *mAudioPlayer;
     int64_t mDurationUs;
 
+    int32_t mDisplayWidth;
+    int32_t mDisplayHeight;
+
     uint32_t mFlags;
     uint32_t mExtractorFlags;
+    uint32_t mSinceLastDropped;
 
-    int32_t mVideoWidth, mVideoHeight;
     int64_t mTimeSourceDeltaUs;
     int64_t mVideoTimeUs;
 
-    bool mSeeking;
+    enum SeekType {
+        NO_SEEK,
+        SEEK,
+        SEEK_VIDEO_ONLY
+    };
+    SeekType mSeeking;
+
     bool mSeekNotificationSent;
     int64_t mSeekTimeUs;
 
@@ -200,6 +207,8 @@ private:
     bool mBufferingEventPending;
     sp<TimedEventQueue::Event> mCheckAudioStatusEvent;
     bool mAudioStatusEventPending;
+    sp<TimedEventQueue::Event> mVideoLagEvent;
+    bool mVideoLagEventPending;
 
     sp<TimedEventQueue::Event> mAsyncPrepareEvent;
     Condition mPreparedCondition;
@@ -210,59 +219,23 @@ private:
     void postVideoEvent_l(int64_t delayUs = -1);
     void postBufferingEvent_l();
     void postStreamDoneEvent_l(status_t status);
-    void postCheckAudioStatusEvent_l();
+    void postCheckAudioStatusEvent(int64_t delayUs);
+    void postVideoLagEvent_l();
     status_t play_l();
 
-#ifdef OMAP_ENHANCEMENT
-    Vector<MediaBuffer*> mBuffersWithRenderer;
-    bool mBufferReleaseCallbackSet;
-    bool mIsFirstVideoBuffer;
-    status_t mFirstVideoBufferResult;
-    MediaBuffer *mFirstVideoBuffer;
-#else
-    MediaBuffer *mLastVideoBuffer;
-#endif
     MediaBuffer *mVideoBuffer;
 
-    sp<NuHTTPDataSource> mConnectingDataSource;
+    sp<HTTPBase> mConnectingDataSource;
     sp<NuCachedSource2> mCachedSource;
 
-    sp<ALooper> mLooper;
-    sp<ARTSPController> mRTSPController;
-    sp<ARTPSession> mRTPSession;
-    sp<UDPPusher> mRTPPusher, mRTCPPusher;
+    DrmManagerClient *mDrmManagerClient;
+    sp<DecryptHandle> mDecryptHandle;
 
-    struct SuspensionState {
-        String8 mUri;
-        KeyedVector<String8, String8> mUriHeaders;
-        sp<DataSource> mFileSource;
+    int64_t mLastVideoTimeUs;
+    TimedTextPlayer *mTextPlayer;
+    mutable Mutex mTimedTextLock;
 
-        uint32_t mFlags;
-        int64_t mPositionUs;
-
-        void *mLastVideoFrame;
-        size_t mLastVideoFrameSize;
-        int32_t mColorFormat;
-        int32_t mVideoWidth, mVideoHeight;
-        int32_t mDecodedWidth, mDecodedHeight;
-
-        SuspensionState()
-            : mLastVideoFrame(NULL) {
-        }
-
-        ~SuspensionState() {
-            if (mLastVideoFrame) {
-                free(mLastVideoFrame);
-                mLastVideoFrame = NULL;
-            }
-        }
-    } *mSuspensionState;
-
-#if defined(TARGET_OMAP4) && defined(OMAP_ENHANCEMENT)
-    bool configSEI2004Infos(OMX_OTHER_EXTRADATATYPE *extraData);
-    bool configSEI2010Infos(OMX_OTHER_EXTRADATATYPE *extraData);
-    void updateS3DRenderer();
-#endif
+    sp<WVMExtractor> mWVMExtractor;
 
     status_t setDataSource_l(
             const char *uri,
@@ -271,19 +244,21 @@ private:
     status_t setDataSource_l(const sp<DataSource> &dataSource);
     status_t setDataSource_l(const sp<MediaExtractor> &extractor);
     void reset_l();
-    void partial_reset_l();
     status_t seekTo_l(int64_t timeUs);
     status_t pause_l(bool at_eos = false);
-    status_t initRenderer_l();
+    void initRenderer_l();
+    void notifyVideoSize_l();
     void seekAudioIfNecessary_l();
 
-    void cancelPlayerEvents(bool keepBufferingGoing = false);
+    void cancelPlayerEvents(bool keepNotifications = false);
 
     void setAudioSource(sp<MediaSource> source);
     status_t initAudioDecoder();
 
     void setVideoSource(sp<MediaSource> source);
     status_t initVideoDecoder(uint32_t flags = 0);
+
+    void addTextSource(sp<MediaSource> source);
 
     void onStreamDone();
 
@@ -295,6 +270,7 @@ private:
     void onPrepareAsyncEvent();
     void abortPrepare(status_t err);
     void finishAsyncPrepare_l();
+    void onVideoLagUpdate();
 
     bool getCachedDuration_l(int64_t *durationUs, bool *eos);
 
@@ -302,19 +278,48 @@ private:
 
     static bool ContinuePreparation(void *cookie);
 
-    static void OnRTSPSeekDoneWrapper(void *cookie);
-    void onRTSPSeekDone();
-
     bool getBitrate(int64_t *bitrate);
 
     void finishSeekIfNecessary(int64_t videoTimeUs);
+    void ensureCacheIsFetching_l();
+
+    status_t startAudioPlayer_l(bool sendErrorNotification = true);
+
+    void shutdownVideoDecoder_l();
+    status_t setNativeWindow_l(const sp<ANativeWindow> &native);
+
+    bool isStreamingHTTP() const;
+    void sendCacheStats();
+
+    enum FlagMode {
+        SET,
+        CLEAR,
+        ASSIGN
+    };
+    void modifyFlags(unsigned value, FlagMode mode);
+
+    struct TrackStat {
+        String8 mMIME;
+        String8 mDecoderName;
+    };
+
+    // protected by mStatsLock
+    struct Stats {
+        int mFd;
+        String8 mURI;
+        int64_t mBitrate;
+        ssize_t mAudioTrackIndex;
+        ssize_t mVideoTrackIndex;
+        int64_t mNumVideoFramesDecoded;
+        int64_t mNumVideoFramesDropped;
+        int32_t mVideoWidth;
+        int32_t mVideoHeight;
+        uint32_t mFlags;
+        Vector<TrackStat> mTracks;
+    } mStats;
 
     AwesomePlayer(const AwesomePlayer &);
     AwesomePlayer &operator=(const AwesomePlayer &);
-#ifdef OMAP_ENHANCEMENT
-    const char* mExtractorType;
-    sp<MediaExtractor> mExtractor;
-#endif
 };
 
 }  // namespace android

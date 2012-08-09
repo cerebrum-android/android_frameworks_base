@@ -10,7 +10,7 @@ parent.link=icon_design.html
 
 <ol>
 <li><a href="#tabstates">Providing Icons for Two Tab States</a>
-<li><a href="#icon5">Android 2.0 and Later</a>
+<li><a href="#icon5">Android 2.0 through Android 2.3</a>
   <ol>
     <li><a href="#size5">Size</a></li>
     <li><a href="#style5">Style, colors, and effects</a></li>
@@ -31,6 +31,13 @@ Screens</a></li>
 </div>
 </div>
 
+
+<div class="design-announce">
+<p><strong>New Guides for App Designers!</strong></p> 
+<p>Check out the new documents for designers at <strong><a
+href="{@docRoot}design/index.html">Android Design</a></strong>, including more guidelines
+for <a href="{@docRoot}design/style/iconography.html">Iconography</a>.</p>
+</div>
 
 
 <p>Tab icons are graphical elements used to represent individual tabs in a
@@ -125,10 +132,10 @@ for <code>ic_tab_friends.xml</code>:</p>
 
 
 
-<h2 id="icon5">Android 2.0 and Later</h2>
+<h2 id="icon5">Android 2.0 through Android 2.3</h2>
 
 <p>The following guidelines describe how to design tab icons for Android
-2.0 (API Level 5) and later.</p>
+2.0 through Android 2.3 (API Levels 5 through 10).</p>
 
 <h3 id="size5">Size and positioning</h3>
 

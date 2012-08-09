@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2010, Code Aurora Forum
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +21,7 @@
 #include <sys/types.h>
 
 #include <stdint.h>
+#include <utils/Errors.h>
 
 #include <OMX_Video.h>
 
@@ -33,71 +33,51 @@ struct ColorConverter {
 
     bool isValid() const;
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    void convert(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip,
-            size_t displaywidth=0, size_t displayheight=0,size_t offset=0,bool interlaced=false);
-#else
-    void convert(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip);
-#endif
+    status_t convert(
+            const void *srcBits,
+            size_t srcWidth, size_t srcHeight,
+            size_t srcCropLeft, size_t srcCropTop,
+            size_t srcCropRight, size_t srcCropBottom,
+            void *dstBits,
+            size_t dstWidth, size_t dstHeight,
+            size_t dstCropLeft, size_t dstCropTop,
+            size_t dstCropRight, size_t dstCropBottom);
 
 private:
+    struct BitmapParams {
+        BitmapParams(
+                void *bits,
+                size_t width, size_t height,
+                size_t cropLeft, size_t cropTop,
+                size_t cropRight, size_t cropBottom);
+
+        size_t cropWidth() const;
+        size_t cropHeight() const;
+
+        void *mBits;
+        size_t mWidth, mHeight;
+        size_t mCropLeft, mCropTop, mCropRight, mCropBottom;
+    };
+
     OMX_COLOR_FORMATTYPE mSrcFormat, mDstFormat;
     uint8_t *mClip;
 
     uint8_t *initClip();
 
-    void convertCbYCrY(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip);
+    status_t convertCbYCrY(
+            const BitmapParams &src, const BitmapParams &dst);
 
-    void convertYUV420Planar(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip);
+    status_t convertYUV420Planar(
+            const BitmapParams &src, const BitmapParams &dst);
 
-    void convertQCOMYUV420SemiPlanar(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip);
+    status_t convertQCOMYUV420SemiPlanar(
+            const BitmapParams &src, const BitmapParams &dst);
 
-    void convertYUV420SemiPlanar(
-            size_t width, size_t height,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip);
+    status_t convertYUV420SemiPlanar(
+            const BitmapParams &src, const BitmapParams &dst);
 
-    void convertNV12Tile(
-        size_t width, size_t height,
-        const void *srcBits, size_t srcSkip,
-        void *dstBits, size_t dstSkip);
-
-    size_t nv12TileGetTiledMemBlockNum(
-        size_t bx, size_t by,
-        size_t nbx, size_t nby);
-
-    void nv12TileComputeRGB(
-        uint8_t **dstPtr,const uint8_t *blockUV,
-        const uint8_t *blockY, size_t blockWidth,
-        size_t dstSkip);
-
-    void nv12TileTraverseBlock(
-        uint8_t **dstPtr, const uint8_t *blockY,
-        const uint8_t *blockUV, size_t blockWidth,
-        size_t blockHeight, size_t dstSkip);
-
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    void convertYUV420PackedSemiPlanar(
-            size_t width, size_t height,
-            size_t displaywidth, size_t displayheight, size_t offset,
-            const void *srcBits, size_t srcSkip,
-            void *dstBits, size_t dstSkip, bool interlaced);
-#endif
+    status_t convertTIYUV420PackedSemiPlanar(
+            const BitmapParams &src, const BitmapParams &dst);
 
     ColorConverter(const ColorConverter &);
     ColorConverter &operator=(const ColorConverter &);

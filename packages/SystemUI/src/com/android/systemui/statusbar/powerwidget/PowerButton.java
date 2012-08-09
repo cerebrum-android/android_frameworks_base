@@ -50,6 +50,7 @@ public abstract class PowerButton {
     public static final String BUTTON_MEDIA_PLAY_PAUSE = "toggleMediaPlayPause";
     public static final String BUTTON_MEDIA_PREVIOUS = "toggleMediaPrevious";
     public static final String BUTTON_MEDIA_NEXT = "toggleMediaNext";
+    public static final String BUTTON_WIMAX = "toggleWimax";
     public static final String BUTTON_UNKNOWN = "unknown";
 
     private static final Mode MASK_MODE = Mode.SCREEN;
@@ -75,6 +76,7 @@ public abstract class PowerButton {
         BUTTONS.put(BUTTON_MEDIA_PLAY_PAUSE, MediaPlayPauseButton.class);
         BUTTONS.put(BUTTON_MEDIA_PREVIOUS, MediaPreviousButton.class);
         BUTTONS.put(BUTTON_MEDIA_NEXT, MediaNextButton.class);
+        /* BUTTONS.put(BUTTON_WIMAX, WimaxButton.class); */
     }
     // this is a list of our currently loaded buttons
     private static final HashMap<String, PowerButton> BUTTONS_LOADED = new HashMap<String, PowerButton>();
@@ -100,9 +102,8 @@ public abstract class PowerButton {
                     int buttonLayer = R.id.power_widget_button;
                     int buttonIcon = R.id.power_widget_button_image;
                     int buttonState = R.id.power_widget_button_indic;
-
                     ImageView indic = (ImageView)mView.findViewById(R.id.power_widget_button_indic);
-                    if ((Settings.System.getInt(context.getContentResolver(),Settings.System.EXPANDED_HIDE_INDICATOR, 1)) == 1){
+                    if ((Settings.System.getInt(context.getContentResolver(),Settings.System.EXPANDED_HIDE_INDICATOR, 0)) == 1){
                         indic.setVisibility(8);
                     }else{
                         indic.setVisibility(0);
@@ -110,8 +111,8 @@ public abstract class PowerButton {
                     updateImageView(buttonIcon, mIcon);
 
                     int sColorMaskBase = Settings.System.getInt(context.getContentResolver(),
-                            Settings.System.EXPANDED_VIEW_WIDGET_COLOR, 0xFF8DE20D);
-                    int sColorMaskOn    = (sColorMaskBase & 0x00FFFFFF) | 0xA0000000;
+                            Settings.System.EXPANDED_VIEW_WIDGET_COLOR, 0xFF33B5E5);
+                    int sColorMaskOn    = sColorMaskBase;
                     int sColorMaskOff   = (sColorMaskBase & 0x00FFFFFF) | 0x33000000;
                     int sColorMaskInter = (sColorMaskBase & 0x00FFFFFF) | 0x60000000;
 

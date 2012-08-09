@@ -22,8 +22,27 @@ import android.os.Parcelable;
 import android.util.Log;
 
 /**
- * A class representing a USB accessory.
- * @hide
+ * A class representing a USB accessory, which is an external hardware component
+ * that communicates with an android application over USB.
+ * The accessory is the USB host and android the device side of the USB connection.
+ *
+ * <p>When the accessory connects, it reports its manufacturer and model names,
+ * the version of the accessory, and a user visible description of the accessory to the device.
+ * The manufacturer, model and version strings are used by the USB Manager to choose
+ * an appropriate application for the accessory.
+ * The accessory may optionally provide a unique serial number
+ * and a URL to for the accessory's website to the device as well.
+ *
+ * <p>An instance of this class is sent to the application via the
+ * {@link UsbManager#ACTION_USB_ACCESSORY_ATTACHED} Intent.
+ * The application can then call {@link UsbManager#openAccessory} to open a file descriptor
+ * for reading and writing data to and from the accessory.
+ *
+ * <div class="special reference">
+ * <h3>Developer Guides</h3>
+ * <p>For more information about communicating with USB hardware, read the
+ * <a href="{@docRoot}guide/topics/usb/index.html">USB</a> developer guide.</p>
+ * </div>
  */
 public class UsbAccessory implements Parcelable {
 
@@ -64,7 +83,7 @@ public class UsbAccessory implements Parcelable {
     }
 
     /**
-     * Returns the manufacturer of the accessory.
+     * Returns the manufacturer name of the accessory.
      *
      * @return the accessory manufacturer
      */

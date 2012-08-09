@@ -17,8 +17,8 @@ public class WimaxManagerConstants
      * enabling, disabling, or unknown. One extra provides this state as an int.
      * Another extra provides the previous state, if available.
      */
-    public static final String WIMAX_ENABLED_STATUS_CHANGED =
-        "android.net.wimax.WIMAX_STATUS_CHANGED";
+    public static final String NET_4G_STATE_CHANGED_ACTION =
+        "android.net.fourG.NET_4G_STATE_CHANGED";
 
     /**
      * The lookup key for an int that indicates whether Wimax is enabled,
@@ -32,8 +32,8 @@ public class WimaxManagerConstants
      * initializing, initialized, unknown and ready. One extra provides this state as an int.
      * Another extra provides the previous state, if available.
      */
-    public static final String  WIMAX_STATE_CHANGED_ACTION =
-        "android.net.wimax.WIMAX_STATE_CHANGE";
+    public static final String  WIMAX_NETWORK_STATE_CHANGED_ACTION =
+        "android.net.fourG.wimax.WIMAX_NETWORK_STATE_CHANGED";
 
     /**
      * Broadcast intent action indicating that Wimax signal level has been changed.
@@ -48,7 +48,8 @@ public class WimaxManagerConstants
      * initializing, initialized, unknown and ready.
      */
     public static final String EXTRA_WIMAX_STATE = "WimaxState";
-
+    public static final String EXTRA_4G_STATE = "4g_state";
+    public static final String EXTRA_WIMAX_STATE_INT = "WimaxStateInt";
     /**
      * The lookup key for an int that indicates whether state of Wimax
      * is idle.
@@ -63,17 +64,17 @@ public class WimaxManagerConstants
     /**
      * Indicatates Wimax is disabled.
      */
-    public static final int WIMAX_STATUS_DISABLED = 1;
+    public static final int NET_4G_STATE_DISABLED = 1;
 
     /**
      * Indicatates Wimax is enabled.
      */
-    public static final int WIMAX_STATUS_ENABLED = 3;
+    public static final int NET_4G_STATE_ENABLED = 3;
 
     /**
      * Indicatates Wimax status is known.
      */
-    public static final int WIMAX_STATUS_UNKNOWN = 4;
+    public static final int NET_4G_STATE_UNKNOWN = 4;
 
     /**
      * Indicatates Wimax is in idle state.

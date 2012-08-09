@@ -19,9 +19,13 @@
 #include "include/MPEG4Extractor.h"
 #include "include/WAVExtractor.h"
 #include "include/OggExtractor.h"
+#include "include/MPEG2PSExtractor.h"
 #include "include/MPEG2TSExtractor.h"
 #include "include/NuCachedSource2.h"
-#include "include/NuHTTPDataSource.h"
+#include "include/HTTPBase.h"
+#include "include/DRMExtractor.h"
+#include "include/FLACExtractor.h"
+#include "include/AACExtractor.h"
 
 #include "matroska/MatroskaExtractor.h"
 
@@ -31,13 +35,11 @@
 #include <media/stagefright/MediaErrors.h>
 #include <utils/String8.h>
 
-#if defined(OMAP_ENHANCEMENT)
-#include "include/ASFExtractor.h"
-#endif
+#include <cutils/properties.h>
 
 namespace android {
 
-bool DataSource::getUInt16(off_t offset, uint16_t *x) {
+bool DataSource::getUInt16(off64_t offset, uint16_t *x) {
     *x = 0;
 
     uint8_t byte[2];
@@ -50,7 +52,7 @@ bool DataSource::getUInt16(off_t offset, uint16_t *x) {
     return true;
 }
 
-status_t DataSource::getSize(off_t *size) {
+status_t DataSource::getSize(off64_t *size) {
     *size = 0;
 
     return ERROR_UNSUPPORTED;
@@ -105,14 +107,18 @@ void DataSource::RegisterDefaultSniffers() {
     RegisterSniffer(SniffMatroska);
     RegisterSniffer(SniffOgg);
     RegisterSniffer(SniffWAV);
+    RegisterSniffer(SniffFLAC);
     RegisterSniffer(SniffAMR);
     RegisterSniffer(SniffMPEG2TS);
     RegisterSniffer(SniffMP3);
-#ifdef OMAP_ENHANCEMENT
-    if(isASFParserAvailable()){
-        RegisterSniffer(SniffASF);
+    RegisterSniffer(SniffAAC);
+    RegisterSniffer(SniffMPEG2PS);
+
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("drm.service.enabled", value, NULL)
+            && (!strcmp(value, "1") || !strcasecmp(value, "true"))) {
+        RegisterSniffer(SniffDRM);
     }
-#endif
 }
 
 // static
@@ -121,8 +127,9 @@ sp<DataSource> DataSource::CreateFromURI(
     sp<DataSource> source;
     if (!strncasecmp("file://", uri, 7)) {
         source = new FileSource(uri + 7);
-    } else if (!strncasecmp("http://", uri, 7)) {
-        sp<NuHTTPDataSource> httpSource = new NuHTTPDataSource;
+    } else if (!strncasecmp("http://", uri, 7)
+            || !strncasecmp("https://", uri, 8)) {
+        sp<HTTPBase> httpSource = HTTPBase::Create();
         if (httpSource->connect(uri, headers) != OK) {
             return NULL;
         }
@@ -137,6 +144,10 @@ sp<DataSource> DataSource::CreateFromURI(
     }
 
     return source;
+}
+
+String8 DataSource::getMIMEType() const {
+    return String8("application/octet-stream");
 }
 
 }  // namespace android

@@ -22,15 +22,12 @@
 #include "OMXMaster.h"
 
 #include <OMX_Component.h>
-#ifdef USE_GETBUFFERINFO
-#include <OMX_QCOMExtns.h>
-#endif
 
 #include <binder/IMemory.h>
-#include <binder/MemoryHeapBase.h>
-#include <binder/MemoryHeapPmem.h>
+#include <media/stagefright/HardwareAPI.h>
 #include <media/stagefright/MediaDebug.h>
 #include <media/stagefright/MediaErrors.h>
+
 namespace android {
 
 struct BufferMeta {
@@ -41,6 +38,11 @@ struct BufferMeta {
 
     BufferMeta(size_t size)
         : mSize(size),
+          mIsBackup(false) {
+    }
+
+    BufferMeta(const sp<GraphicBuffer> &graphicBuffer)
+        : mGraphicBuffer(graphicBuffer),
           mIsBackup(false) {
     }
 
@@ -65,10 +67,10 @@ struct BufferMeta {
     }
 
 private:
+    sp<GraphicBuffer> mGraphicBuffer;
     sp<IMemory> mMem;
     size_t mSize;
     bool mIsBackup;
-    char *mBase;
 
     BufferMeta(const BufferMeta &);
     BufferMeta &operator=(const BufferMeta &);
@@ -85,8 +87,7 @@ OMXNodeInstance::OMXNodeInstance(
       mNodeID(NULL),
       mHandle(NULL),
       mObserver(observer),
-      mDying(false),
-      pmem_registered_with_client(false){
+      mDying(false) {
 }
 
 OMXNodeInstance::~OMXNodeInstance() {
@@ -123,6 +124,8 @@ static status_t StatusFromOMXError(OMX_ERRORTYPE err) {
 }
 
 status_t OMXNodeInstance::freeNode(OMXMaster *master) {
+    static int32_t kMaxNumIterations = 10;
+
     // Transition the node from its current state all the way down
     // to "Loaded".
     // This ensures that all active buffers are properly freed even
@@ -142,9 +145,16 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
             LOGV("forcing Executing->Idle");
             sendCommand(OMX_CommandStateSet, OMX_StateIdle);
             OMX_ERRORTYPE err;
+            int32_t iteration = 0;
             while ((err = OMX_GetState(mHandle, &state)) == OMX_ErrorNone
                    && state != OMX_StateIdle
                    && state != OMX_StateInvalid) {
+                if (++iteration > kMaxNumIterations) {
+                    LOGE("component failed to enter Idle state, aborting.");
+                    state = OMX_StateInvalid;
+                    break;
+                }
+
                 usleep(100000);
             }
             CHECK_EQ(err, OMX_ErrorNone);
@@ -164,9 +174,16 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
             freeActiveBuffers();
 
             OMX_ERRORTYPE err;
+            int32_t iteration = 0;
             while ((err = OMX_GetState(mHandle, &state)) == OMX_ErrorNone
                    && state != OMX_StateLoaded
                    && state != OMX_StateInvalid) {
+                if (++iteration > kMaxNumIterations) {
+                    LOGE("component failed to enter Loaded state, aborting.");
+                    state = OMX_StateInvalid;
+                    break;
+                }
+
                 LOGV("waiting for Loaded state...");
                 usleep(100000);
             }
@@ -184,15 +201,10 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
             break;
     }
 
-#ifdef TARGET_7X30
-    if(true == pmem_registered_with_client) {
-      mObserver->registerBuffers(NULL);
-      pmem_registered_with_client = false;
-    }
-#endif
-
+    LOGV("calling destroyComponentInstance");
     OMX_ERRORTYPE err = master->destroyComponentInstance(
             static_cast<OMX_COMPONENTTYPE *>(mHandle));
+    LOGV("destroyComponentInstance returned err %d", err);
 
     mHandle = NULL;
 
@@ -222,6 +234,7 @@ status_t OMXNodeInstance::getParameter(
     Mutex::Autolock autoLock(mLock);
 
     OMX_ERRORTYPE err = OMX_GetParameter(mHandle, index, params);
+
     return StatusFromOMXError(err);
 }
 
@@ -253,57 +266,133 @@ status_t OMXNodeInstance::setConfig(
     return StatusFromOMXError(err);
 }
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-status_t OMXNodeInstance::useBuffer(
-                OMX_U32 portIndex, const sp<IMemory> &params,
-                OMX::buffer_id *buffer) {
-        return useBuffer(portIndex, params, buffer, 0);
-}
-#endif
+status_t OMXNodeInstance::getState(OMX_STATETYPE* state) {
+    Mutex::Autolock autoLock(mLock);
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
+    OMX_ERRORTYPE err = OMX_GetState(mHandle, state);
+
+    return StatusFromOMXError(err);
+}
+
+status_t OMXNodeInstance::enableGraphicBuffers(
+        OMX_U32 portIndex, OMX_BOOL enable) {
+    Mutex::Autolock autoLock(mLock);
+
+    OMX_INDEXTYPE index;
+    OMX_ERRORTYPE err = OMX_GetExtensionIndex(
+            mHandle,
+            const_cast<OMX_STRING>("OMX.google.android.index.enableAndroidNativeBuffers"),
+            &index);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_GetExtensionIndex failed");
+
+        return StatusFromOMXError(err);
+    }
+
+    OMX_VERSIONTYPE ver;
+    ver.s.nVersionMajor = 1;
+    ver.s.nVersionMinor = 0;
+    ver.s.nRevision = 0;
+    ver.s.nStep = 0;
+    EnableAndroidNativeBuffersParams params = {
+        sizeof(EnableAndroidNativeBuffersParams), ver, portIndex, enable,
+    };
+
+    err = OMX_SetParameter(mHandle, index, &params);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_EnableAndroidNativeBuffers failed with error %d (0x%08x)",
+                err, err);
+
+        return UNKNOWN_ERROR;
+    }
+
+    return OK;
+}
+
+status_t OMXNodeInstance::getGraphicBufferUsage(
+        OMX_U32 portIndex, OMX_U32* usage) {
+    Mutex::Autolock autoLock(mLock);
+
+    OMX_INDEXTYPE index;
+    OMX_ERRORTYPE err = OMX_GetExtensionIndex(
+            mHandle,
+            const_cast<OMX_STRING>(
+                    "OMX.google.android.index.getAndroidNativeBufferUsage"),
+            &index);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_GetExtensionIndex failed");
+
+        return StatusFromOMXError(err);
+    }
+
+    OMX_VERSIONTYPE ver;
+    ver.s.nVersionMajor = 1;
+    ver.s.nVersionMinor = 0;
+    ver.s.nRevision = 0;
+    ver.s.nStep = 0;
+    GetAndroidNativeBufferUsageParams params = {
+        sizeof(GetAndroidNativeBufferUsageParams), ver, portIndex, 0,
+    };
+
+    err = OMX_GetParameter(mHandle, index, &params);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_GetAndroidNativeBufferUsage failed with error %d (0x%08x)",
+                err, err);
+        return UNKNOWN_ERROR;
+    }
+
+    *usage = params.nUsage;
+
+    return OK;
+}
+
+status_t OMXNodeInstance::storeMetaDataInBuffers(
+        OMX_U32 portIndex,
+        OMX_BOOL enable) {
+    Mutex::Autolock autolock(mLock);
+
+    OMX_INDEXTYPE index;
+    OMX_STRING name = const_cast<OMX_STRING>(
+            "OMX.google.android.index.storeMetaDataInBuffers");
+
+    OMX_ERRORTYPE err = OMX_GetExtensionIndex(mHandle, name, &index);
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_GetExtensionIndex %s failed", name);
+        return StatusFromOMXError(err);
+    }
+
+    StoreMetaDataInBuffersParams params;
+    memset(&params, 0, sizeof(params));
+    params.nSize = sizeof(params);
+
+    // Version: 1.0.0.0
+    params.nVersion.s.nVersionMajor = 1;
+
+    params.nPortIndex = portIndex;
+    params.bStoreMetaData = enable;
+    if ((err = OMX_SetParameter(mHandle, index, &params)) != OMX_ErrorNone) {
+        LOGE("OMX_SetParameter() failed for StoreMetaDataInBuffers: 0x%08x", err);
+        return UNKNOWN_ERROR;
+    }
+    return err;
+}
+
 status_t OMXNodeInstance::useBuffer(
-                OMX_U32 portIndex, const sp<IMemory> &params,
-                OMX::buffer_id *buffer, size_t size) {
-#else
-status_t OMXNodeInstance::useBuffer(
-                OMX_U32 portIndex, const sp<IMemory> &params,
-                OMX::buffer_id *buffer) {
-#endif
+        OMX_U32 portIndex, const sp<IMemory> &params,
+        OMX::buffer_id *buffer) {
     Mutex::Autolock autoLock(mLock);
 
     BufferMeta *buffer_meta = new BufferMeta(params);
 
     OMX_BUFFERHEADERTYPE *header;
 
-#if defined(OMAP_ENHANCEMENT) && defined(TARGET_OMAP4)
-    OMX_ERRORTYPE err;
-
-    if(params.get() != NULL) {
-        err = OMX_UseBuffer(
-                mHandle, &header, portIndex, buffer_meta,
-                params->size(), static_cast<OMX_U8 *>(params->pointer()));
-    } else {
-        err = OMX_UseBuffer(
-                mHandle, &header, portIndex, buffer_meta,
-                size, NULL);
-    }
-#elif defined(USE_GETBUFFERINFO)
-    OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO pmem_info;
-    ssize_t offset;
-    size_t size;
-    sp<IMemoryHeap> heap = params->getMemory(&offset, &size);
-    pmem_info.pmem_fd = heap->getHeapID();
-    pmem_info.offset = offset;
-
-    OMX_ERRORTYPE err = OMX_UseBuffer(
-            mHandle, &header, portIndex, &pmem_info,
-            params->size(), static_cast<OMX_U8 *>(params->pointer()));
-#else
     OMX_ERRORTYPE err = OMX_UseBuffer(
             mHandle, &header, portIndex, buffer_meta,
             params->size(), static_cast<OMX_U8 *>(params->pointer()));
-#endif
 
     if (err != OMX_ErrorNone) {
         LOGE("OMX_UseBuffer failed with error %d (0x%08x)", err, err);
@@ -316,11 +405,123 @@ status_t OMXNodeInstance::useBuffer(
         return UNKNOWN_ERROR;
     }
 
-#ifdef USE_GETBUFFERINFO
-    header->pAppPrivate = buffer_meta;
-#endif
-
     CHECK_EQ(header->pAppPrivate, buffer_meta);
+
+    *buffer = header;
+
+    addActiveBuffer(portIndex, *buffer);
+
+    return OK;
+}
+
+status_t OMXNodeInstance::useGraphicBuffer2_l(
+        OMX_U32 portIndex, const sp<GraphicBuffer>& graphicBuffer,
+        OMX::buffer_id *buffer) {
+
+    // port definition
+    OMX_PARAM_PORTDEFINITIONTYPE def;
+    def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
+    def.nVersion.s.nVersionMajor = 1;
+    def.nVersion.s.nVersionMinor = 0;
+    def.nVersion.s.nRevision = 0;
+    def.nVersion.s.nStep = 0;
+    def.nPortIndex = portIndex;
+    OMX_ERRORTYPE err = OMX_GetParameter(mHandle, OMX_IndexParamPortDefinition, &def);
+    if (err != OMX_ErrorNone)
+    {
+        LOGE("%s::%d:Error getting OMX_IndexParamPortDefinition", __FUNCTION__, __LINE__);
+        return err;
+    }
+
+    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer);
+
+    OMX_BUFFERHEADERTYPE *header = NULL;
+    OMX_U8* bufferHandle = const_cast<OMX_U8*>(
+            reinterpret_cast<const OMX_U8*>(graphicBuffer->handle));
+
+    err = OMX_UseBuffer(
+            mHandle,
+            &header,
+            portIndex,
+            bufferMeta,
+            def.nBufferSize,
+            bufferHandle);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_UseBuffer failed with error %d (0x%08x)", err, err);
+        delete bufferMeta;
+        bufferMeta = NULL;
+        *buffer = 0;
+        return UNKNOWN_ERROR;
+    }
+
+    CHECK_EQ(header->pBuffer, bufferHandle);
+    CHECK_EQ(header->pAppPrivate, bufferMeta);
+
+    *buffer = header;
+
+    addActiveBuffer(portIndex, *buffer);
+
+    return OK;
+}
+
+// XXX: This function is here for backwards compatibility.  Once the OMX
+// implementations have been updated this can be removed and useGraphicBuffer2
+// can be renamed to useGraphicBuffer.
+status_t OMXNodeInstance::useGraphicBuffer(
+        OMX_U32 portIndex, const sp<GraphicBuffer>& graphicBuffer,
+        OMX::buffer_id *buffer) {
+    Mutex::Autolock autoLock(mLock);
+
+    // See if the newer version of the extension is present.
+    OMX_INDEXTYPE index;
+    if (OMX_GetExtensionIndex(
+            mHandle,
+            const_cast<OMX_STRING>("OMX.google.android.index.useAndroidNativeBuffer2"),
+            &index) == OMX_ErrorNone) {
+        return useGraphicBuffer2_l(portIndex, graphicBuffer, buffer);
+    }
+
+    OMX_ERRORTYPE err = OMX_GetExtensionIndex(
+            mHandle,
+            const_cast<OMX_STRING>("OMX.google.android.index.useAndroidNativeBuffer"),
+            &index);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_GetExtensionIndex failed");
+
+        return StatusFromOMXError(err);
+    }
+
+    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer);
+
+    OMX_BUFFERHEADERTYPE *header;
+
+    OMX_VERSIONTYPE ver;
+    ver.s.nVersionMajor = 1;
+    ver.s.nVersionMinor = 0;
+    ver.s.nRevision = 0;
+    ver.s.nStep = 0;
+    UseAndroidNativeBufferParams params = {
+        sizeof(UseAndroidNativeBufferParams), ver, portIndex, bufferMeta,
+        &header, graphicBuffer,
+    };
+
+    err = OMX_SetParameter(mHandle, index, &params);
+
+    if (err != OMX_ErrorNone) {
+        LOGE("OMX_UseAndroidNativeBuffer failed with error %d (0x%08x)", err,
+                err);
+
+        delete bufferMeta;
+        bufferMeta = NULL;
+
+        *buffer = 0;
+
+        return UNKNOWN_ERROR;
+    }
+
+    CHECK_EQ(header->pAppPrivate, bufferMeta);
 
     *buffer = header;
 
@@ -464,36 +665,6 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
         BufferMeta *buffer_meta =
             static_cast<BufferMeta *>(buffer->pAppPrivate);
 
-#ifdef TARGET_7X30
-        PLATFORM_PRIVATE_LIST *pPlatfromList = (PLATFORM_PRIVATE_LIST *)buffer->pPlatformPrivate;
-        PLATFORM_PRIVATE_ENTRY *pPlatformEntry;
-        PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo;
-        if(pPlatfromList && (false == pmem_registered_with_client)) {
-        sp<IMemoryHeap> mMem;
-        sp<MemoryHeapBase> master = NULL;
-            for(size_t i=0; i<pPlatfromList->nEntries; i++) {
-               if(pPlatfromList->entryList->type == PLATFORM_PRIVATE_PMEM)
-               {
-                  pPlatformEntry = (PLATFORM_PRIVATE_ENTRY *)pPlatfromList->entryList;
-                  pPMEMInfo = (PLATFORM_PRIVATE_PMEM_INFO *)pPlatformEntry->entry;
-                  if(pPMEMInfo) {
-                     master = (MemoryHeapBase *)pPMEMInfo->pmem_fd;
-                  }
-                  break;
-               }
-            }
-            if(master != NULL) {
-                master->setDevice("/dev/pmem_adsp");
-                uint32_t heap_flags = master->getFlags() & MemoryHeapBase::NO_CACHING;
-                sp<MemoryHeapPmem> heap = new MemoryHeapPmem(master, heap_flags);
-                heap->slap();
-                mMem = interface_cast<IMemoryHeap>(heap);
-                mBase = (OMX_U8 *)mMem->getBase();
-                mObserver->registerBuffers(mMem);
-                pmem_registered_with_client = true;
-            }
-        }
-#endif
         buffer_meta->CopyFromOMX(buffer);
     }
 
@@ -523,17 +694,6 @@ OMX_ERRORTYPE OMXNodeInstance::OnEvent(
     if (instance->mDying) {
         return OMX_ErrorNone;
     }
-#ifdef TARGET_7X30
-    if(eEvent == OMX_EventCmdComplete && nData1 == OMX_CommandPortDisable && nData2 == 1) {
-      /*This is needed to clear the reference on pmem fd.
-       * If this is skipped then we will see pmem leak.
-       */
-      if(true == instance->pmem_registered_with_client) {
-        instance->mObserver->registerBuffers(NULL);
-        instance->pmem_registered_with_client = false;
-      }
-    }
-#endif
     return instance->owner()->OnEvent(
             instance->nodeID(), eEvent, nData1, nData2, pEventData);
 }
@@ -595,4 +755,3 @@ void OMXNodeInstance::freeActiveBuffers() {
 }
 
 }  // namespace android
-

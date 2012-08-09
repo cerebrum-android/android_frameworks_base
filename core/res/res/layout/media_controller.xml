@@ -17,12 +17,8 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#CC666666"
+    android:background="#CC000000"
     android:orientation="vertical">
-
-    <ImageView android:layout_width="match_parent"
-        android:layout_height="1px"
-        android:background="@android:drawable/divider_horizontal_dark" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -59,7 +55,7 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="0dip"
             android:layout_weight="1"
-            android:layout_height="30dip"
+            android:layout_height="32dip"
             android:layout_alignParentLeft="true"
             android:layout_alignParentRight="true" />
 

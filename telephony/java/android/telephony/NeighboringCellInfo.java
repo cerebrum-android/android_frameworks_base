@@ -25,7 +25,6 @@ import static android.telephony.TelephonyManager.NETWORK_TYPE_UMTS;
 import static android.telephony.TelephonyManager.NETWORK_TYPE_HSDPA;
 import static android.telephony.TelephonyManager.NETWORK_TYPE_HSUPA;
 import static android.telephony.TelephonyManager.NETWORK_TYPE_HSPA;
-import static android.telephony.TelephonyManager.NETWORK_TYPE_HSPAP;
 
 
 
@@ -128,7 +127,7 @@ public class NeighboringCellInfo implements Parcelable
                 location = "0" + location;
             }
         }
-
+        // TODO - handle LTE and eHRPD (or find they can't be supported)
         try {// set LAC/CID or PSC based on radioType
             switch (radioType) {
             case NETWORK_TYPE_GPRS:
@@ -144,7 +143,6 @@ public class NeighboringCellInfo implements Parcelable
             case NETWORK_TYPE_HSDPA:
             case NETWORK_TYPE_HSUPA:
             case NETWORK_TYPE_HSPA:
-            case NETWORK_TYPE_HSPAP:
                 mNetworkType = radioType;
                 mPsc = Integer.valueOf(location, 16);
                 break;

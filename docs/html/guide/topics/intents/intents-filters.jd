@@ -247,7 +247,7 @@ several category constants, including these:
 </tr><tr>
    <td>{@code CATEGORY_HOME}
    <td>The activity displays the home screen, the first screen the user sees when 
-       the device is turned on or when the HOME key is pressed.
+       the device is turned on or when the <em>Home</em> button is pressed.
 </tr><tr>
    <td>{@code CATEGORY_LAUNCHER}
    <td>The activity can be the initial activity of a task and is listed in 
@@ -927,7 +927,7 @@ as described by its two intent filters:
 
 <p>
 The first, primary, purpose of this activity is to enable the user to 
-interact with a single note &mdash to either {@code VIEW} the note or 
+interact with a single note &mdash; to either {@code VIEW} the note or 
 {@code EDIT} it.  (The {@code EDIT_NOTE} category is a synonym for 
 {@code EDIT}.)  The intent would contain the URI for data matching the 
 MIME type <code>vnd.android.cursor.item/vnd.google.note</code> &mdash;
