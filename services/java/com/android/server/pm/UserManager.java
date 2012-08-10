@@ -136,7 +136,6 @@ public class UserManager {
                 }
             }
             updateUserIds();
-            fis.close();
         } catch (IOException ioe) {
             fallbackToSingleUser();
         } catch (XmlPullParserException pe) {

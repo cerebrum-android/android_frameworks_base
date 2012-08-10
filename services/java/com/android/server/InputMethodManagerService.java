@@ -368,13 +368,6 @@ public class InputMethodManagerService extends IInputMethodManager.Stub
                     Settings.Secure.ENABLED_INPUT_METHODS), false, this);
             resolver.registerContentObserver(Settings.Secure.getUriFor(
                     Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE), false, this);
-            resolver.registerContentObserver(Settings.System.getUriFor(
-                    Settings.System.STATUS_BAR_IME_SWITCHER),
-                    false, new ContentObserver(null) {
-                        public void onChange(boolean selfChange) {
-                            updateFromSettingsLocked();
-                        }
-                    });
         }
 
         @Override public void onChange(boolean selfChange) {
@@ -632,6 +625,8 @@ public class InputMethodManagerService extends IInputMethodManager.Stub
                 mStatusBar = statusBar;
                 statusBar.setIconVisibility("ime", false);
                 updateImeWindowStatusLocked();
+                mShowOngoingImeSwitcherForPhones = mRes.getBoolean(
+                        com.android.internal.R.bool.show_ongoing_ime_switcher);
                 try {
                     startInputInnerLocked();
                 } catch (RuntimeException e) {
@@ -1292,9 +1287,6 @@ public class InputMethodManagerService extends IInputMethodManager.Stub
             mCurMethodId = null;
             unbindCurrentMethodLocked(true);
         }
-
-        mShowOngoingImeSwitcherForPhones = Settings.System.getInt(mContext.getContentResolver(),
-                Settings.System.STATUS_BAR_IME_SWITCHER, 1) == 1;
     }
 
     /* package */ void setInputMethodLocked(String id, int subtypeId) {

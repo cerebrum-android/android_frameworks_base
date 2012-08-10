@@ -222,7 +222,6 @@ public:
     /* Called by the heatbeat to ensures that the reader has not deadlocked. */
     virtual void monitor() = 0;
 
-    virtual void setKeyLayout(const char* deviceName, const char* keyLayout) = 0;
 };
 
 class EventHub : public EventHubInterface
@@ -276,8 +275,6 @@ public:
 
     virtual void dump(String8& dump);
     virtual void monitor();
-
-    virtual void setKeyLayout(const char* deviceName, const char* keyLayout);
 
 protected:
     virtual ~EventHub();
@@ -374,9 +371,6 @@ private:
 
     // Set to the number of CPUs.
     int32_t mNumCpus;
-
-    // List of key layouts and character maps to be overridden
-    PropertyMap mOrKeyLayouts;
 };
 
 }; // namespace android

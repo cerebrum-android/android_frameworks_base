@@ -687,6 +687,7 @@ public class ThrottleService extends IThrottleManager.Stub {
             mNotificationManager.notify(mThrottlingNotification.icon, mThrottlingNotification);
         }
 
+
         private void clearThrottleAndNotification() {
             if (mThrottleIndex.get() != THROTTLE_INDEX_UNTHROTTLED) {
                 mThrottleIndex.set(THROTTLE_INDEX_UNTHROTTLED);

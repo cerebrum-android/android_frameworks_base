@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2006-2008 The Android Open Source Project
- * This code has been modified.  Portions copyright (C) 2010, T-Mobile USA, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,7 +78,6 @@ import android.content.pm.ServiceInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
-import android.content.res.CustomTheme;
 import android.graphics.Bitmap;
 import android.net.Proxy;
 import android.net.ProxyProperties;
@@ -149,7 +147,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import dalvik.system.Zygote;
 
 public final class ActivityManagerService extends ActivityManagerNative
         implements Watchdog.Monitor, BatteryStatsImpl.BatteryCallback {
@@ -944,7 +941,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                     }
                     AppErrorResult res = (AppErrorResult) data.get("result");
                     if (!mSleeping && !mShuttingDown) {
-                        Dialog d = new StrictModeViolationDialog(mContext(), res, proc);
+                        Dialog d = new StrictModeViolationDialog(mContext, res, proc);
                         d.show();
                         proc.crashDialog = d;
                     } else {
@@ -1133,7 +1130,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                     notification.defaults = 0; // please be quiet
                     notification.sound = null;
                     notification.vibrate = null;
-                    notification.setLatestEventInfo(mContext, text,
+                    notification.setLatestEventInfo(context, text,
                             mContext.getText(R.string.heavy_weight_notification_detail),
                             PendingIntent.getActivity(mContext, 0, root.intent,
                                     PendingIntent.FLAG_CANCEL_CURRENT));
@@ -1760,7 +1757,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                 if (cr.binding != null && cr.binding.service != null
                         && cr.binding.service.app != null
                         && cr.binding.service.app.lruSeq != mLruSeq) {
-                    updateLruProcessInternalLocked(cr.binding.service.app, false,
+                    updateLruProcessInternalLocked(cr.binding.service.app, oomAdj,
                             updateActivityTime, i+1);
                 }
             }
@@ -1768,7 +1765,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         if (app.conProviders.size() > 0) {
             for (ContentProviderRecord cpr : app.conProviders.keySet()) {
                 if (cpr.proc != null && cpr.proc.lruSeq != mLruSeq) {
-                    updateLruProcessInternalLocked(cpr.proc, false,
+                    updateLruProcessInternalLocked(cpr.proc, oomAdj,
                             updateActivityTime, i+1);
                 }
             }
@@ -2993,7 +2990,7 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
     }
 
-    final void logAppTooSlow(int pid, long startTime, String msg) {
+    final void logAppTooSlow(ProcessRecord app, long startTime, String msg) {
         if (IS_USER_BUILD) {
             return;
         }
@@ -3026,7 +3023,7 @@ public final class ActivityManagerService extends ActivityManagerNative
                 sb.append(msg);
                 FileOutputStream fos = new FileOutputStream(tracesFile);
                 fos.write(sb.toString().getBytes());
-                if (pid <= 0) {
+                if (app == null) {
                     fos.write("\n*** No application process!".getBytes());
                 }
                 fos.close();
@@ -3036,9 +3033,9 @@ public final class ActivityManagerService extends ActivityManagerNative
                 return;
             }
 
-            if (pid > 0) {
+            if (app != null) {
                 ArrayList<Integer> firstPids = new ArrayList<Integer>();
-                firstPids.add(pid);
+                firstPids.add(app.pid);
                 dumpStackTraces(tracesPath, firstPids, null, null);
             }
 
@@ -13465,11 +13462,6 @@ public final class ActivityManagerService extends ActivityManagerNative
                                      values.userSetLocale);
                 }
 
-                if (values.customTheme != null) {
-                    saveThemeResourceLocked(values.customTheme,
-                            !values.customTheme.equals(mConfiguration.customTheme));
-                }
-
                 mConfigurationSeq++;
                 if (mConfigurationSeq <= 0) {
                     mConfigurationSeq = 1;
@@ -13559,13 +13551,6 @@ public final class ActivityManagerService extends ActivityManagerNative
             SystemProperties.set("persist.sys.language", l.getLanguage());
             SystemProperties.set("persist.sys.country", l.getCountry());
             SystemProperties.set("persist.sys.localevar", l.getVariant());
-        }
-    }
-
-    private void saveThemeResourceLocked(CustomTheme t, boolean isDiff){
-        if(isDiff){
-            SystemProperties.set(Configuration.THEME_ID_PERSISTENCE_PROPERTY, t.getThemeId());
-            SystemProperties.set(Configuration.THEME_PACKAGE_NAME_PERSISTENCE_PROPERTY, t.getThemePackageName());  
         }
     }
 

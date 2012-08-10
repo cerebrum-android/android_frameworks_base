@@ -1659,14 +1659,11 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     DeviceAdminInfo.USES_POLICY_FORCE_LOCK);
             long ident = Binder.clearCallingIdentity();
             try {
-                if (mIPowerManager.isScreenOn()) {
-                    // Power off the display
-                    mIPowerManager.goToSleepWithReason(SystemClock.uptimeMillis(),
-                            WindowManagerPolicy.OFF_BECAUSE_OF_ADMIN);
-                } else {
-                    // Ensure the device is locked
-                    getWindowManager().lockNow();
-                }
+                // Power off the display
+                mIPowerManager.goToSleepWithReason(SystemClock.uptimeMillis(),
+                        WindowManagerPolicy.OFF_BECAUSE_OF_ADMIN);
+                // Ensure the device is locked
+                getWindowManager().lockNow();
             } catch (RemoteException e) {
             } finally {
                 Binder.restoreCallingIdentity(ident);
