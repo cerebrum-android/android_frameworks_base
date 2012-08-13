@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Message;
@@ -641,7 +642,34 @@ class CommandParamsFactory extends Handler {
         }
 
         textMsg.responseNeeded = false;
-		mCmdParams = new DisplayTextParams(cmdDet, textMsg);
+
+        // samsung stk overlay
+        if (Resources.getSystem().getBoolean(com.android.internal.R.bool.config_samsung_stk)) {
+            String smscAddress = null;
+            String pdu = null;
+
+            ctlv = searchForTag(ComprehensionTlvTag.ADDRESS, ctlvs);
+            if (ctlv != null) {
+                smscAddress = ValueParser.retrieveSMSCaddress(ctlv);
+                CatLog.d(this, "The smsc address is " + smscAddress);
+            }
+            else {
+                CatLog.d(this, "The smsc address is null");
+            }
+
+            ctlv = searchForTag(ComprehensionTlvTag.SMS_TPDU, ctlvs);
+            if (ctlv != null) {
+                pdu = ValueParser.retrieveSMSTPDU(ctlv);
+                CatLog.d(this, "The SMS tpdu is " + pdu);
+            }
+            else {
+                CatLog.d(this, "The SMS tpdu is null");
+            }
+            mCmdParams = new SendSMSParams(cmdDet, textMsg, smscAddress, pdu);
+        }
+        else {
+            mCmdParams = new DisplayTextParams(cmdDet, textMsg);
+        }
 
         if (iconId != null) {
             mIconLoadState = LOAD_SINGLE_ICON;
