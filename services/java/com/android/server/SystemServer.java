@@ -111,6 +111,7 @@ class ServerThread extends Thread {
 
         LightsService lights = null;
         PowerManagerService power = null;
+        DynamicMemoryManagerService dmm = null;
         BatteryService battery = null;
         AlarmManagerService alarm = null;
         NetworkManagementService networkManagement = null;
