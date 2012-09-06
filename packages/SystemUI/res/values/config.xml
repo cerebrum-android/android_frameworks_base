@@ -65,5 +65,27 @@
 
     <!-- Vibration duration for MultiWaveView used in SearchPanelView -->
     <integer translatable="false" name="config_search_panel_view_vibration_duration">20</integer>
+
+    <!-- The length of the vibration when the notificaiotn pops open. -->
+    <integer name="one_finger_pop_duration_ms">10</integer>
+
+    <!-- Whether we're using the tablet-optimized recents interface (we use this
+     value at runtime for some things) -->
+    <integer name="status_bar_recents_bg_gradient_degrees">90</integer>
+
+    <!-- decay duration (from size_max -> size), in ms -->
+    <integer name="navigation_bar_deadzone_hold">333</integer>
+    <integer name="navigation_bar_deadzone_decay">333</integer>
+    
+    <bool name="config_dead_zone_flash">false</bool>
+
+    <!-- Min alpha % that recent items will fade to while being dismissed -->
+    <integer name="config_recent_item_min_alpha">3</integer>
+
+    <!-- The number of columns in the QuickSettings -->
+    <integer name="quick_settings_num_columns">3</integer>
+
+    <!-- The number of columns that the top level tiles span in the QuickSettings -->
+    <integer name="quick_settings_user_time_settings_tile_span">1</integer>
 </resources>
 

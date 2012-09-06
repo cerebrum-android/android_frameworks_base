@@ -154,6 +154,15 @@
     <!-- Checkbox label for USB accessory dialogs.  [CHAR LIMIT=50] -->
     <string name="always_use_accessory">Use by default for this USB accessory</string>
 
+    <!-- Title of confirmation dialog for USB debugging -->
+    <string name="usb_debugging_title">Allow USB Debugging?</string>
+
+    <!-- Message of confirmation dialog for USB debugging -->
+    <string name="usb_debugging_message">Allow USB Debugging from this computer?\nYour RSA key fingerprint is\n<xliff:g id="fingerprint">%1$s</xliff:g></string>
+
+    <!-- Option to always allow USB debugging from the attached computer -->
+    <string name="usb_debugging_always">Always allow this computer</string>
+
     <!-- Checkbox label for application compatibility mode ON (zooming app to look like it's running
          on a phone).  [CHAR LIMIT=25] -->
     <string name="compat_mode_on">Zoom to fill screen</string>
@@ -363,12 +372,12 @@
     <!-- Content description of the clear button in the notification panel for accessibility (not shown on the screen). [CHAR LIMIT=NONE] -->
     <string name="accessibility_clear_all">Clear all notifications.</string>
 
-    <!-- Description of the desk dock action that invokes the Android Dreams screen saver feature -->
-    <string name="dreams_dock_launcher">Activate screen saver</string>
-
     <!-- Title shown in notification popup for inspecting the responsible
          application -->
     <string name="status_bar_notification_inspect_item_title">App info</string>
+
+    <!-- [CHAR LIMIT=NONE] -->
+    <string name="close_universe">Close</string>
 
     <!-- Title for the pseudo-notification shown when notifications are disabled (do-not-disturb
          mode) -->
@@ -385,4 +394,41 @@
 
     <!-- Description of the button in the phone-style notification panel that controls auto-rotation, when auto-rotation is off. [CHAR LIMIT=NONE] -->
     <string name="accessibility_rotation_lock_on_portrait">Screen is locked in portrait orientation.</string>
+
+    <!-- Name of the Jelly Bean platlogo screensaver -->
+    <string name="jelly_bean_dream_name">BeanFlinger</string>
+
+    <!-- Name of the launcher shortcut icon that allows dreams to be started immediately [CHAR LIMIT=20] -->
+    <string name="start_dreams">Start dreams</string>
+
+    <!-- QuickSettings: Airplane mode [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_airplane_mode_label">Airplane mode</string>
+    <!-- QuickSettings: Battery [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_battery_label">Battery</string>
+    <!-- QuickSettings: Bluetooth [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_bluetooth_label">Bluetooth</string>
+    <!-- QuickSettings: Brightness [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_brightness_label">Brightness</string>
+    <!-- QuickSettings: IME [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_ime_label">IME</string>
+    <!-- QuickSettings: Location [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_location_label">Location in use</string>
+    <!-- QuickSettings: Media device [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_media_device_label">Media device</string>
+    <!-- QuickSettings: RSSI [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_rssi_label">RSSI</string>
+    <!-- QuickSettings: RSSI (No network) [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_rssi_emergency_only">Emergency Calls Only</string>
+    <!-- QuickSettings: Settings [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_settings_label">Settings</string>
+    <!-- QuickSettings: Time [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_time_label">Time</string>
+    <!-- QuickSettings: User [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_user_label">Me</string>
+    <!-- QuickSettings: Wifi [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_wifi_label">Wifi</string>
+    <!-- QuickSettings: Wifi (No network) [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_wifi_no_network">No Network</string>
+    <!-- QuickSettings: Wifi display [CHAR LIMIT=NONE] -->
+    <string name="quick_settings_wifi_display_label">Wifi display</string>
 </resources>

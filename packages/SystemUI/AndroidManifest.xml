@@ -15,6 +15,10 @@
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.REMOTE_AUDIO_PLAYBACK" />
 
+    <uses-permission android:name="android.permission.MANAGE_USERS" />
+    <uses-permission android:name="android.permission.READ_PROFILE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- Networking and telephony -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
@@ -40,6 +44,7 @@
     <uses-permission android:name="android.permission.STOP_APP_SWITCHES" />
     <uses-permission android:name="android.permission.SET_SCREEN_COMPATIBILITY" />
     <uses-permission android:name="android.permission.START_ANY_ACTIVITY" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     <!-- WindowManager -->
     <uses-permission android:name="android.permission.INTERNAL_SYSTEM_WINDOW" />
@@ -50,6 +55,7 @@
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <application
+        android:name="com.android.systemui.SystemUIApplication"
         android:persistent="true"
         android:allowClearUserData="false"
         android:allowBackup="false"
@@ -84,26 +90,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- should you need to launch the screensaver, this is a good way to do it -->
-        <activity android:name=".DreamsDockLauncher"
-                android:theme="@android:style/Theme.Dialog"
-                android:label="@string/dreams_dock_launcher">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
-        <!-- launch screensaver on (desk) dock event -->
-        <receiver android:name=".DreamsDockLauncher$DockEventReceiver" 
-            android:exported="true"
-            >
-            <intent-filter>
-                <action android:name="android.intent.action.DOCK_EVENT" />
-            </intent-filter>
-        </receiver>
-
-
         <activity android:name=".usb.UsbStorageActivity"
                   android:label="@*android:string/usb_storage_activity_title"
                   android:excludeFromRecents="true">
@@ -111,6 +97,16 @@
         <activity android:name="com.android.internal.app.ExternalMediaFormatActivity"
                 android:theme="@*android:style/Theme.Dialog.Alert"
                 android:excludeFromRecents="true">
+        </activity>
+
+        <activity android:name=".recent.RecentsActivity"
+                android:theme="@android:style/Theme.Holo.Wallpaper.NoTitleBar"
+                android:excludeFromRecents="true"
+                android:launchMode="singleInstance"
+                android:exported="true">
+          <intent-filter>
+            <action android:name="com.android.systemui.TOGGLE_RECENTS" />
+          </intent-filter>
         </activity>
 
         <!-- started from UsbDeviceSettingsManager -->
@@ -149,6 +145,14 @@
             android:excludeFromRecents="true">
         </activity>
 
+        <!-- started from UsbDebuggingManager -->
+        <activity android:name=".usb.UsbDebuggingActivity"
+            android:permission="android.permission.MANAGE_USB"
+            android:theme="@*android:style/Theme.Holo.Dialog.Alert"
+            android:finishOnCloseSystemDialogs="true"
+            android:excludeFromRecents="true">
+        </activity>
+
         <!-- started from NetworkPolicyManagerService -->
         <activity
             android:name=".net.NetworkOverLimitActivity"
@@ -165,7 +169,7 @@
             android:name=".BeanBag"
             android:exported="true"
             android:label="BeanBag"
-            android:icon="@drawable/redbeandroid"
+            android:icon="@drawable/redbean2"
             android:theme="@android:style/Theme.Wallpaper.NoTitleBar.Fullscreen"
             android:hardwareAccelerated="true"
             android:launchMode="singleInstance"
@@ -175,6 +179,33 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="com.android.internal.category.PLATLOGO" />
 <!--            <category android:name="android.intent.category.LAUNCHER" />-->
+            </intent-filter>
+        </activity>
+
+        <!-- Beans in space -->
+        <service
+            android:name=".BeanBagDream"
+            android:exported="true"
+            android:label="@string/jelly_bean_dream_name"
+            android:enabled="false"
+            >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.DREAM" />
+            </intent-filter>
+        </service>
+
+        <activity android:name=".Somnambulator"
+            android:label="@string/start_dreams"
+            android:icon="@mipmap/ic_dreams"
+            android:theme="@android:style/Theme.Wallpaper.NoTitleBar"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            >
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_SHORTCUT" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>
