@@ -34,6 +34,11 @@ class CommandParams {
     }
 
     boolean setIcon(Bitmap icon) { return true; }
+
+    @Override
+    public String toString() {
+        return cmdDet.toString();
+    }
 }
 
 class DisplayTextParams extends CommandParams {
@@ -190,16 +195,5 @@ class BIPClientParams extends CommandParams {
             return true;
         }
         return false;
-    }
-}
-
-class SendSMSParams extends DisplayTextParams {
-    String pdu;
-    String smscAddress;
-
-    SendSMSParams(CommandDetails cmdDet, TextMessage textmessage, String smscaddress, String smsPdu) {
-        super(cmdDet, textmessage);
-        smscAddress = smscaddress;
-        pdu = smsPdu;
     }
 }

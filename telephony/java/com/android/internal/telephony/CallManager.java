@@ -373,10 +373,19 @@ public final class CallManager {
         AudioManager audioManager = (AudioManager)
                 context.getSystemService(Context.AUDIO_SERVICE);
 
-        int mode = AudioManager.MODE_NORMAL;
+        // change the audio mode and request/abandon audio focus according to phone state,
+        // but only on audio mode transitions
         switch (getState()) {
             case RINGING:
-                mode = AudioManager.MODE_RINGTONE;
+                if (audioManager.getMode() != AudioManager.MODE_RINGTONE) {
+                    // only request audio focus if the ringtone is going to be heard
+                    if (audioManager.getStreamVolume(AudioManager.STREAM_RING) > 0) {
+                        if (VDBG) Log.d(LOG_TAG, "requestAudioFocus on STREAM_RING");
+                        audioManager.requestAudioFocusForCall(AudioManager.STREAM_RING,
+                                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                    }
+                    audioManager.setMode(AudioManager.MODE_RINGTONE);
+                }
                 break;
             case OFFHOOK:
                 Phone offhookPhone = getFgPhone();
@@ -386,43 +395,28 @@ public final class CallManager {
                     offhookPhone = getBgPhone();
                 }
 
+                int newAudioMode = AudioManager.MODE_IN_CALL;
                 if (offhookPhone instanceof SipPhone) {
-                    // enable IN_COMMUNICATION audio mode for sipPhone
-                    mode = AudioManager.MODE_IN_COMMUNICATION;
-                } else {
-                    // enable IN_CALL audio mode for telephony
-                    mode = AudioManager.MODE_IN_CALL;
+                    // enable IN_COMMUNICATION audio mode instead for sipPhone
+                    newAudioMode = AudioManager.MODE_IN_COMMUNICATION;
+                }
+                if (audioManager.getMode() != newAudioMode) {
+                    // request audio focus before setting the new mode
+                    if (VDBG) Log.d(LOG_TAG, "requestAudioFocus on STREAM_VOICE_CALL");
+                    audioManager.requestAudioFocusForCall(AudioManager.STREAM_VOICE_CALL,
+                            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                    audioManager.setMode(newAudioMode);
+                }
+                break;
+            case IDLE:
+                if (audioManager.getMode() != AudioManager.MODE_NORMAL) {
+                    audioManager.setMode(AudioManager.MODE_NORMAL);
+                    if (VDBG) Log.d(LOG_TAG, "abandonAudioFocus");
+                    // abandon audio focus after the mode has been set back to normal
+                    audioManager.abandonAudioFocusForCall();
                 }
                 break;
         }
-
-        // Set additional audio parameters needed for incall audio
-        String[] audioParams = context.getResources().getStringArray(com.android.internal.R.array.config_telephony_set_audioparameters);
-        String[] aPValues;
-
-        for (String parameter : audioParams) {
-            aPValues = parameter.split("=");
-
-            if(aPValues[1] == null || aPValues[1].length() == 0) {
-                aPValues[1] = "on";
-            }
-
-            if(aPValues[2] == null || aPValues[2].length() == 0) {
-                aPValues[2] = "off";
-            }
-
-            if (mode == AudioManager.MODE_IN_CALL) {
-                Log.d(LOG_TAG, "setAudioMode(): " + aPValues[0] + "=" + aPValues[1]);
-                audioManager.setParameters(aPValues[0] + "=" + aPValues[1]);
-            } else if (mode == AudioManager.MODE_NORMAL) {
-                Log.d(LOG_TAG, "setAudioMode(): " + aPValues[0] + "=" + aPValues[2]);
-                audioManager.setParameters(aPValues[0] + "=" + aPValues[2]);
-            }
-        }
-
-        // calling audioManager.setMode() multiple times in a short period of
-        // time seems to break the audio recorder in in-call mode
-        if (audioManager.getMode() != mode) audioManager.setMode(mode);
     }
 
     private Context getContext() {

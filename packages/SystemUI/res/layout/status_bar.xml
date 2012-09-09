@@ -22,11 +22,24 @@
 <com.android.systemui.statusbar.phone.PhoneStatusBarView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:systemui="http://schemas.android.com/apk/res/com.android.systemui"
+    android:id="@+id/status_bar"
     android:background="@drawable/status_bar_background"
     android:orientation="vertical"
     android:focusable="true"
     android:descendantFocusability="afterDescendants"
+    android:fitsSystemWindows="true"
     >
+
+    <ImageView
+        android:id="@+id/notification_lights_out"
+        android:layout_width="@dimen/status_bar_icon_size"
+        android:layout_height="match_parent"
+        android:paddingLeft="6dip"
+		android:paddingBottom="2dip"
+        android:src="@drawable/ic_sysbar_lights_out_dot_small"
+        android:scaleType="center"
+        android:visibility="gone"
+        />
 
     <LinearLayout android:id="@+id/icons"
         android:layout_width="match_parent"
@@ -37,6 +50,7 @@
         >
 
         <LinearLayout
+			android:id="@+id/notification_icon_area"
             android:layout_width="0dip"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -75,16 +89,6 @@
                 android:id="@+id/signal_cluster"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                />
-            <TextView
-                android:id="@+id/battery_text"
-                android:textAppearance="@style/TextAppearance.StatusBar.Battery"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:singleLine="true"
-                android:paddingLeft="4dip"
-                android:layout_marginRight="-3dip"
-                android:gravity="center_vertical|left"
                 />
             <ImageView
                 android:id="@+id/battery"

@@ -19,7 +19,6 @@ package com.android.server.usb;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.content.res.Resources;
 import android.hardware.usb.IUsbManager;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbDevice;
@@ -54,8 +53,6 @@ public class UsbService extends IUsbManager.Stub {
         if (new File("/sys/class/android_usb").exists()) {
             mDeviceManager = new UsbDeviceManager(context, mSettingsManager);
         }
-        else if(new File(Resources.getSystem().getString(com.android.internal.R.string.config_legacyUmsLunFile)).exists())
-            mDeviceManager = new LegacyUsbDeviceManager(context, mSettingsManager);
     }
 
     public void systemReady() {
@@ -152,7 +149,7 @@ public class UsbService extends IUsbManager.Stub {
     public void setCurrentFunction(String function, boolean makeDefault) {
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
         if (mDeviceManager != null) {
-            mDeviceManager.setCurrentFunction(function, makeDefault);
+            mDeviceManager.setCurrentFunctions(function, makeDefault);
         } else {
             throw new IllegalStateException("USB device mode not supported");
         }

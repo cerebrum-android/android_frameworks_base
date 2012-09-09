@@ -29,6 +29,5 @@ interface IContentObserver
      * observed. selfUpdate is true if the update was caused by a call to
      * commit on the cursor that is being observed.
      */
-    oneway void onChange(boolean selfUpdate);
-    oneway void onChangeUri(in Uri uri, boolean selfUpdate);
+    oneway void onChange(boolean selfUpdate, in Uri uri);
 }

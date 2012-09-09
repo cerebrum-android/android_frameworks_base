@@ -19,30 +19,25 @@ package com.android.internal.telephony.gsm;
 import android.os.Message;
 import android.util.Log;
 
+import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccCardApplication;
 import com.android.internal.telephony.IccConstants;
 import com.android.internal.telephony.IccFileHandler;
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 
 /**
  * {@hide}
  */
 public final class SIMFileHandler extends IccFileHandler implements IccConstants {
     static final String LOG_TAG = "GSM";
-    private Phone mPhone;
 
     //***** Instance Variables
 
     //***** Constructor
 
-    SIMFileHandler(GSMPhone phone) {
-        super(phone);
-        mPhone = phone;
-    }
-
-    public void dispose() {
-        super.dispose();
+    public SIMFileHandler(IccCard card, String aid, CommandsInterface ci) {
+        super(card, aid, ci);
     }
 
     protected void finalize() {
@@ -57,12 +52,6 @@ public final class SIMFileHandler extends IccFileHandler implements IccConstants
     }
 
     protected String getEFPath(int efid) {
-        if (phone.mCM.needsOldRilFeature("qcomuiccstack")) {
-            IccCard icccard = phone.getIccCard();
-            if (icccard != null && icccard.isApplicationOnIcc(IccCardApplication.AppType.APPTYPE_USIM))
-                return getEFPathForUICC(efid);
-        }
-
         // TODO(): DF_GSM can be 7F20 or 7F21 to handle backward compatibility.
         // Implement this after discussion with OEMs.
         switch(efid) {
@@ -99,47 +88,12 @@ public final class SIMFileHandler extends IccFileHandler implements IccConstants
             // The EFids in USIM phone book entries are decided by the card manufacturer.
             // So if we don't match any of the cases above and if its a USIM return
             // the phone book path.
-            IccCard card = phone.getIccCard();
-            if (card != null && card.isApplicationOnIcc(IccCardApplication.AppType.APPTYPE_USIM)) {
+            if (mParentCard != null
+                    && mParentCard.isApplicationOnIcc(IccCardApplication.AppType.APPTYPE_USIM)) {
                 return MF_SIM + DF_TELECOM + DF_PHONEBOOK;
             }
             Log.e(LOG_TAG, "Error: EF Path being returned in null");
         }
-        return path;
-    }
-
-    protected String getEFPathForUICC(int efid) {
-        switch (efid) {
-            case EF_SMS:
-            case EF_EXT6:
-            case EF_MWIS:
-            case EF_MBI:
-            case EF_SPN:
-            case EF_AD:
-            case EF_MBDN:
-            case EF_PNN:
-            case EF_SPDI:
-            case EF_SST:
-            case EF_CFIS:
-            case EF_MAILBOX_CPHS:
-            case EF_VOICE_MAIL_INDICATOR_CPHS:
-            case EF_CFF_CPHS:
-            case EF_SPN_CPHS:
-            case EF_SPN_SHORT_CPHS:
-            case EF_INFO_CPHS:
-            case EF_PBR:
-            case EF_MSISDN:
-            case EF_FDN:
-                return MF_SIM + DF_ADFISIM;
-
-            case EF_CSP_CPHS:
-                // we only support global phonebook.
-                return MF_SIM + DF_TELECOM + DF_PHONEBOOK;
-
-        }
-        String path = getCommonIccEFPath(efid);
-        if (path == null)
-            Log.e(LOG_TAG, "Error: EF Path being returned in null");
         return path;
     }
 

@@ -25,11 +25,10 @@ import android.os.SystemProperties;
 
 import com.android.internal.telephony.cdma.CDMAPhone;
 import com.android.internal.telephony.cdma.CDMALTEPhone;
+import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.gsm.GSMPhone;
 import com.android.internal.telephony.sip.SipPhone;
 import com.android.internal.telephony.sip.SipPhoneFactory;
-
-import java.lang.reflect.Constructor;
 
 /**
  * {@hide}
@@ -49,7 +48,8 @@ public class PhoneFactory {
     static private Looper sLooper;
     static private Context sContext;
 
-    static final int preferredCdmaSubscription = RILConstants.PREFERRED_CDMA_SUBSCRIPTION;
+    static final int preferredCdmaSubscription =
+                         CdmaSubscriptionSourceManager.PREFERRED_CDMA_SUBSCRIPTION;
 
     //***** Class Methods
 
@@ -116,11 +116,11 @@ public class PhoneFactory {
                 int lteOnCdma = BaseCommands.getLteOnCdmaModeStatic();
                 switch (lteOnCdma) {
                     case Phone.LTE_ON_CDMA_FALSE:
-                        cdmaSubscription = RILConstants.SUBSCRIPTION_FROM_NV;
+                        cdmaSubscription = CdmaSubscriptionSourceManager.SUBSCRIPTION_FROM_NV;
                         Log.i(LOG_TAG, "lteOnCdma is 0 use SUBSCRIPTION_FROM_NV");
                         break;
                     case Phone.LTE_ON_CDMA_TRUE:
-                        cdmaSubscription = RILConstants.SUBSCRIPTION_FROM_RUIM;
+                        cdmaSubscription = CdmaSubscriptionSourceManager.SUBSCRIPTION_FROM_RUIM;
                         Log.i(LOG_TAG, "lteOnCdma is 1 use SUBSCRIPTION_FROM_RUIM");
                         break;
                     case Phone.LTE_ON_CDMA_UNKNOWN:
@@ -135,20 +135,7 @@ public class PhoneFactory {
                 Log.i(LOG_TAG, "Cdma Subscription set to " + cdmaSubscription);
 
                 //reads the system properties and makes commandsinterface
-                String sRILClassname = SystemProperties.get("ro.telephony.ril_class", "RIL");
-                Log.i(LOG_TAG, "RILClassname is " + sRILClassname);
-
-                // Use reflection to construct the RIL class (defaults to RIL)
-                try {
-                    Class<?> classDefinition = Class.forName("com.android.internal.telephony." + sRILClassname);
-                    Constructor<?> constructor = classDefinition.getConstructor(new Class[] {Context.class, int.class, int.class});
-                    sCommandsInterface = (RIL) constructor.newInstance(new Object[] {context, networkMode, cdmaSubscription});
-                } catch (Exception e) {
-                    // 6 different types of exceptions are thrown here that it's
-                    // easier to just catch Exception as our "error handling" is the same.
-                    Log.wtf(LOG_TAG, "Unable to construct command interface", e);
-                    throw new RuntimeException(e);
-                }
+                sCommandsInterface = new RIL(context, networkMode, cdmaSubscription);
 
                 int phoneType = getPhoneType(networkMode);
                 if (phoneType == Phone.PHONE_TYPE_GSM) {
@@ -194,7 +181,6 @@ public class PhoneFactory {
         case RILConstants.NETWORK_MODE_GSM_ONLY:
         case RILConstants.NETWORK_MODE_WCDMA_ONLY:
         case RILConstants.NETWORK_MODE_GSM_UMTS:
-        case RILConstants.NETWORK_MODE_LTE_GSM_WCDMA:
             return Phone.PHONE_TYPE_GSM;
 
         // Use CDMA Phone for the global mode including CDMA
