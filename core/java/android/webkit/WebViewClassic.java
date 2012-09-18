@@ -7927,9 +7927,6 @@ public final class WebViewClassic implements WebViewProvider, WebViewProvider.Sc
                     syncSelectionCursors();
                 } else {
                     adjustSelectionCursors();
-                    if (mSelectCallback != null) {
-                        mSelectCallback.setOpenUrlVisibility();
-                    }
                 }
                 if (mIsCaretSelection) {
                     resetCaretTimer();
