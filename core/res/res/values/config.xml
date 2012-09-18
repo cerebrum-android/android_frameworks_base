@@ -867,4 +867,5 @@
     <bool name="config_cellBroadcastAppLinks">false</bool>
     
     <bool name="config_samsung_stk">false</bool>
+    <bool name="config_smsSamsungCdmaAlternateMessageIDEncoding">false</bool>
 </resources>
