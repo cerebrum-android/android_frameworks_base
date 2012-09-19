@@ -406,7 +406,7 @@ framework_docs_LOCAL_JAVA_LIBRARIES := \
 			core \
 			ext \
 			framework \
-			frameworks2 \
+			framework2 \
 
 framework_docs_LOCAL_MODULE_CLASS := JAVA_LIBRARIES
 framework_docs_LOCAL_DROIDDOC_HTML_DIR := docs/html
