@@ -2307,6 +2307,13 @@ public final class Settings {
          */
         public static final String EXPANDED_VIEW_WIDGET = "expanded_view_widget";
 
+		/**
+         * Hide indicator in status bar widget
+         *
+         * @hide
+         */         
+        public static final String EXPANDED_HIDE_INDICATOR = "expanded_hide_indicator";
+
         /**
          * Whether to hide the notification screen after clicking on a widget
          * button
