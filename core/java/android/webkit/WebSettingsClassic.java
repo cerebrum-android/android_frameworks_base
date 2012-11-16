@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2012 The Android Open Source Project
- * Copyright (c) 2011, 2012, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +22,6 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.os.SystemProperties;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.util.EventLog;
@@ -36,7 +34,7 @@ import java.util.Locale;
  */
 public class WebSettingsClassic extends WebSettings {
     // TODO: Keep this up to date
-    private static final String PREVIOUS_VERSION = "4.0.4";
+    private static final String PREVIOUS_VERSION = "4.1.1";
 
     // WebView associated with this WebSettings.
     private WebViewClassic mWebView;
@@ -88,7 +86,6 @@ public class WebSettingsClassic extends WebSettings {
     private long            mMaximumDecodedImageSize = 0; // 0 means default
     private boolean         mPrivateBrowsingEnabled = false;
     private boolean         mSyntheticLinksEnabled = true;
-    private boolean         mMediaPreloadEnabled = true;
     // HTML5 API flags
     private boolean         mAppCacheEnabled = false;
     private boolean         mDatabaseEnabled = false;
@@ -119,6 +116,7 @@ public class WebSettingsClassic extends WebSettings {
     private boolean         mNeedInitialFocus = true;
     private boolean         mNavDump = false;
     private boolean         mSupportZoom = true;
+    private boolean         mMediaPlaybackRequiresUserGesture = true;
     private boolean         mBuiltInZoomControls = false;
     private boolean         mDisplayZoomControls = true;
     private boolean         mAllowFileAccess = true;
@@ -127,7 +125,6 @@ public class WebSettingsClassic extends WebSettings {
     private boolean         mEnableSmoothTransition = false;
     private boolean         mForceUserScalable = false;
     private boolean         mPasswordEchoEnabled = true;
-    private boolean         mWebGLEnabled = true;
 
     // AutoFill Profile data
     public static class AutoFillProfile {
@@ -377,6 +374,21 @@ public class WebSettingsClassic extends WebSettings {
         synchronized(sLockForLocaleSettings) {
             locale = sLocale;
         }
+        return getDefaultUserAgentForLocale(mContext, locale);
+    }
+
+    /**
+     * Returns the default User-Agent used by a WebView.
+     * An instance of WebView could use a different User-Agent if a call
+     * is made to {@link WebSettings#setUserAgent(int)} or
+     * {@link WebSettings#setUserAgentString(String)}.
+     *
+     * @param context a Context object used to access application assets
+     * @param locale The Locale to use in the User-Agent string.
+     * @see WebViewFactoryProvider#getDefaultUserAgent(Context)
+     * @see WebView#getDefaultUserAgent(Context)
+     */
+    public static String getDefaultUserAgentForLocale(Context context, Locale locale) {
         StringBuffer buffer = new StringBuffer();
         // Add version
         final String version = Build.VERSION.RELEASE;
@@ -420,12 +432,9 @@ public class WebSettingsClassic extends WebSettings {
             buffer.append(" Build/");
             buffer.append(id);
         }
-        final String cmversion = SystemProperties.get("ro.cm.version");
-        if (cmversion != null && cmversion.length() > 0)
-            buffer.append("; CyanogenMod-" + cmversion.replaceAll("(.+?)-.*","$1"));
-        String mobile = mContext.getResources().getText(
+        String mobile = context.getResources().getText(
             com.android.internal.R.string.web_user_agent_target_content).toString();
-        final String base = mContext.getResources().getText(
+        final String base = context.getResources().getText(
                 com.android.internal.R.string.web_user_agent).toString();
         return String.format(base, buffer, mobile);
     }
@@ -463,6 +472,25 @@ public class WebSettingsClassic extends WebSettings {
     @Override
     public boolean supportZoom() {
         return mSupportZoom;
+    }
+
+    /**
+     * @see android.webkit.WebSettings#setMediaPlaybackRequiresUserGesture(boolean)
+     */
+    @Override
+    public void setMediaPlaybackRequiresUserGesture(boolean support) {
+        if (mMediaPlaybackRequiresUserGesture != support) {
+            mMediaPlaybackRequiresUserGesture = support;
+            postSync();
+        }
+    }
+
+    /**
+     * @see android.webkit.WebSettings#getMediaPlaybackRequiresUserGesture()
+     */
+    @Override
+    public boolean getMediaPlaybackRequiresUserGesture() {
+        return mMediaPlaybackRequiresUserGesture;
     }
 
     /**
@@ -634,34 +662,6 @@ public class WebSettingsClassic extends WebSettings {
     @Override
     public synchronized int getTextZoom() {
         return mTextSize;
-    }
-
-    /**
-     * @see android.webkit.WebSettings#setTextSize(android.webkit.WebSettingsClassic.TextSize)
-     */
-    @Override
-    public synchronized void setTextSize(TextSize t) {
-        setTextZoom(t.value);
-    }
-
-    /**
-     * @see android.webkit.WebSettings#getTextSize()
-     */
-    @Override
-    public synchronized TextSize getTextSize() {
-        TextSize closestSize = null;
-        int smallestDelta = Integer.MAX_VALUE;
-        for (TextSize size : TextSize.values()) {
-            int delta = Math.abs(mTextSize - size.value);
-            if (delta == 0) {
-                return size;
-            }
-            if (delta < smallestDelta) {
-                smallestDelta = delta;
-                closestSize = size;
-            }
-        }
-        return closestSize != null ? closestSize : TextSize.NORMAL;
     }
 
     /**
@@ -1122,6 +1122,7 @@ public class WebSettingsClassic extends WebSettings {
         if (mJavaScriptEnabled != flag) {
             mJavaScriptEnabled = flag;
             postSync();
+            mWebView.updateJavaScriptEnabled(flag);
         }
     }
 
@@ -1252,7 +1253,7 @@ public class WebSettingsClassic extends WebSettings {
     @Override
     public synchronized void setAppCachePath(String path) {
         // We test for a valid path and for repeated setting on the native
-        // side, but we can avoid syncing in some simple cases.
+        // side, but we can avoid syncing in some simple cases. 
         if (mAppCachePath == null && path != null && !path.isEmpty()) {
             mAppCachePath = path;
             postSync();
@@ -1629,24 +1630,6 @@ public class WebSettingsClassic extends WebSettings {
     }
 
     /**
-     * @hide
-     */
-    public synchronized boolean isWebGLAvailable() {
-        return nativeIsWebGLAvailable();
-    }
-
-    /**
-     * Sets whether WebGL is enabled.
-     * @param flag Set to true to enable WebGL.
-     */
-    public synchronized void setWebGLEnabled(boolean flag) {
-        if (mWebGLEnabled != flag) {
-            mWebGLEnabled = flag;
-            postSync();
-        }
-    }
-
-    /**
      * Sets whether viewport metatag can disable zooming.
      * @param flag Whether or not to forceably enable user scalable.
      */
@@ -1657,13 +1640,6 @@ public class WebSettingsClassic extends WebSettings {
     synchronized void setSyntheticLinksEnabled(boolean flag) {
         if (mSyntheticLinksEnabled != flag) {
             mSyntheticLinksEnabled = flag;
-            postSync();
-        }
-    }
-
-    public synchronized void setMediaPreloadEnabled(boolean flag) {
-        if (mMediaPreloadEnabled != flag) {
-            mMediaPreloadEnabled = flag;
             postSync();
         }
     }
@@ -1765,5 +1741,4 @@ public class WebSettingsClassic extends WebSettings {
 
     // Synchronize the native and java settings.
     private native void nativeSync(int nativeFrame);
-    private native boolean nativeIsWebGLAvailable();
 }

@@ -19,8 +19,8 @@ package com.android.systemui.statusbar.phone;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
-import android.animation.LayoutTransition;
 import android.animation.ObjectAnimator;
+import android.animation.TimeInterpolator;
 import android.app.ActivityManager;
 import android.app.ActivityManagerNative;
 import android.app.Notification;
@@ -30,15 +30,18 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.res.Resources;
+import android.database.ContentObserver;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.PixelFormat;
+import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.NinePatchDrawable;
 import android.inputmethodservice.InputMethodService;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
@@ -46,18 +49,20 @@ import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.service.dreams.DreamService;
 import android.service.dreams.IDreamManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Slog;
 import android.view.Display;
 import android.view.Gravity;
-import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
+import android.view.ViewPropertyAnimator;
+import android.view.ViewStub;
 import android.view.WindowManager;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.Animation;
@@ -77,7 +82,6 @@ import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.GestureRecorder;
 import com.android.systemui.statusbar.NotificationData;
 import com.android.systemui.statusbar.NotificationData.Entry;
-import com.android.systemui.statusbar.RotationToggle;
 import com.android.systemui.statusbar.SignalClusterView;
 import com.android.systemui.statusbar.StatusBarIconView;
 import com.android.systemui.statusbar.policy.BatteryController;
@@ -88,6 +92,7 @@ import com.android.systemui.statusbar.policy.LocationController;
 import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.NotificationRowLayout;
 import com.android.systemui.statusbar.policy.OnSizeChangedListener;
+import com.android.systemui.statusbar.policy.Prefs;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -95,9 +100,16 @@ import java.util.ArrayList;
 
 public class PhoneStatusBar extends BaseStatusBar {
     static final String TAG = "PhoneStatusBar";
-    public static final boolean DEBUG = false;
+    public static final boolean DEBUG = BaseStatusBar.DEBUG;
     public static final boolean SPEW = DEBUG;
     public static final boolean DUMPTRUCK = true; // extra dumpsys info
+    public static final boolean DEBUG_GESTURES = false;
+
+    public static final boolean DEBUG_CLINGS = false;
+
+    public static final boolean ENABLE_NOTIFICATION_PANEL_CLING = false;
+
+    public static final boolean SETTINGS_DRAG_SHORTCUT = true;
 
     // additional instrumentation for testing purposes; intended to be left on during development
     public static final boolean CHATTY = DEBUG;
@@ -106,7 +118,8 @@ public class PhoneStatusBar extends BaseStatusBar {
             = "com.android.internal.policy.statusbar.START";
 
     private static final int MSG_OPEN_NOTIFICATION_PANEL = 1000;
-    private static final int MSG_CLOSE_NOTIFICATION_PANEL = 1001;
+    private static final int MSG_CLOSE_PANELS = 1001;
+    private static final int MSG_OPEN_SETTINGS_PANEL = 1002;
     // 1020-1030 reserved for BaseStatusBar
 
     // will likely move to a resource or other tunable param at some point
@@ -144,6 +157,7 @@ public class PhoneStatusBar extends BaseStatusBar {
     int mIconSize = -1;
     int mIconHPadding = -1;
     Display mDisplay;
+    Point mCurrentDisplaySize = new Point();
 
     IDreamManager mDreamManager;
 
@@ -153,31 +167,42 @@ public class PhoneStatusBar extends BaseStatusBar {
     int mPixelFormat;
     Object mQueueLock = new Object();
 
-    // icons
-    LinearLayout mIcons;
-    IconMerger mNotificationIcons;
-    View mMoreIcon;
+    // viewgroup containing the normal contents of the statusbar
+    LinearLayout mStatusBarContents;
+    
+    // right-hand icons
+    LinearLayout mSystemIconArea;
+    
+    // left-hand icons 
     LinearLayout mStatusIcons;
+    // the icons themselves
+    IconMerger mNotificationIcons;
+    // [+>
+    View mMoreIcon;
 
     // expanded notifications
-    PanelView mNotificationPanel; // the sliding/resizing panel within the notification window
+    NotificationPanelView mNotificationPanel; // the sliding/resizing panel within the notification window
     ScrollView mScrollView;
     View mExpandedContents;
-    final Rect mNotificationPanelBackgroundPadding = new Rect();
     int mNotificationPanelGravity;
     int mNotificationPanelMarginBottomPx, mNotificationPanelMarginPx;
-    int mNotificationPanelMinHeight;
+    float mNotificationPanelMinHeightFrac;
     boolean mNotificationPanelIsFullScreenWidth;
     TextView mNotificationPanelDebugText;
 
     // settings
-    PanelView mSettingsPanel;
+    QuickSettings mQS;
+    boolean mHasSettingsPanel, mHasFlipSettings;
+    SettingsPanelView mSettingsPanel;
+    View mFlipSettingsView;
+    QuickSettingsContainerView mSettingsContainer;
     int mSettingsPanelGravity;
 
     // top bar
+    View mNotificationPanelHeader;
+    View mDateTimeView; 
     View mClearButton;
-    View mSettingsButton;
-    RotationToggle mRotationButton;
+    ImageView mSettingsButton, mNotificationButton;
 
     // carrier/wifi label
     private TextView mCarrierLabel;
@@ -214,6 +239,11 @@ public class PhoneStatusBar extends BaseStatusBar {
     boolean mTracking;
     VelocityTracker mVelocityTracker;
 
+    // help screen
+    private boolean mClingShown;
+    private ViewGroup mCling;
+    private boolean mSuppressStatusBarDrags; // while a cling is up, briefly deaden the bar to give things time to settle
+
     boolean mAnimating;
     boolean mClosing; // only valid when mAnimating; indicates the initial acceleration
     float mAnimY;
@@ -227,8 +257,8 @@ public class PhoneStatusBar extends BaseStatusBar {
     int[] mAbsPos = new int[2];
     Runnable mPostCollapseCleanup = null;
 
-    private AnimatorSet mLightsOutAnimation;
-    private AnimatorSet mLightsOnAnimation;
+    private Animator mLightsOutAnimation;
+    private Animator mLightsOnAnimation;
 
     // for disabling the status bar
     int mDisabled = 0;
@@ -239,16 +269,45 @@ public class PhoneStatusBar extends BaseStatusBar {
     DisplayMetrics mDisplayMetrics = new DisplayMetrics();
 
     // XXX: gesture research
-    private GestureRecorder mGestureRec = new GestureRecorder("/sdcard/statusbar_gestures.dat");
+    private final GestureRecorder mGestureRec = DEBUG_GESTURES
+        ? new GestureRecorder("/sdcard/statusbar_gestures.dat") 
+        : null;
 
     private int mNavigationIconHints = 0;
     private final Animator.AnimatorListener mMakeIconsInvisible = new AnimatorListenerAdapter() {
         @Override
         public void onAnimationEnd(Animator animation) {
             // double-check to avoid races
-            if (mIcons.getAlpha() == 0) {
-                Slog.d(TAG, "makeIconsInvisible");
-                mIcons.setVisibility(View.INVISIBLE);
+            if (mStatusBarContents.getAlpha() == 0) {
+                if (DEBUG) Slog.d(TAG, "makeIconsInvisible");
+                mStatusBarContents.setVisibility(View.INVISIBLE);
+            }
+        }
+    };
+
+    // ensure quick settings is disabled until the current user makes it through the setup wizard
+    private boolean mUserSetup = false;
+    private ContentObserver mUserSetupObserver = new ContentObserver(new Handler()) {
+        @Override
+        public void onChange(boolean selfChange) {
+            final boolean userSetup = 0 != Settings.Secure.getIntForUser(
+                    mContext.getContentResolver(),
+                    Settings.Secure.USER_SETUP_COMPLETE,
+                    0 /*default */,
+                    mCurrentUserId);
+            if (MULTIUSER_DEBUG) Slog.d(TAG, String.format("User setup changed: " +
+                    "selfChange=%s userSetup=%s mUserSetup=%s",
+                    selfChange, userSetup, mUserSetup));
+            if (mSettingsButton != null && !mHasSettingsPanel) {
+                mSettingsButton.setVisibility(userSetup ? View.VISIBLE : View.INVISIBLE);
+            }
+            if (mSettingsPanel != null) {
+                mSettingsPanel.setEnabled(userSetup);
+            }
+            if (userSetup != mUserSetup) {
+                mUserSetup = userSetup;
+                if (!mUserSetup && mStatusBarView != null)
+                    animateCollapseQuickSettings();
             }
         }
     };
@@ -259,7 +318,7 @@ public class PhoneStatusBar extends BaseStatusBar {
                 .getDefaultDisplay();
 
         mDreamManager = IDreamManager.Stub.asInterface(
-                ServiceManager.checkService("dreams"));
+                ServiceManager.checkService(DreamService.DREAM_SERVICE));
 
         super.start(); // calls createAndAddWindows()
 
@@ -286,16 +345,13 @@ public class PhoneStatusBar extends BaseStatusBar {
 
         mStatusBarWindow = (StatusBarWindowView) View.inflate(context,
                 R.layout.super_status_bar, null);
-        if (DEBUG) {
-            mStatusBarWindow.setBackgroundColor(0x6000FF80);
-        }
         mStatusBarWindow.mService = this;
         mStatusBarWindow.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 if (event.getAction() == MotionEvent.ACTION_DOWN) {
                     if (mExpandedVisible && !mAnimating) {
-                        animateCollapse();
+                        animateCollapsePanels();
                     }
                 }
                 return mStatusBarWindow.onTouchEvent(event);
@@ -303,22 +359,28 @@ public class PhoneStatusBar extends BaseStatusBar {
 
         mStatusBarView = (PhoneStatusBarView) mStatusBarWindow.findViewById(R.id.status_bar);
         mStatusBarView.setBar(this);
+        
 
         PanelHolder holder = (PanelHolder) mStatusBarWindow.findViewById(R.id.panel_holder);
         mStatusBarView.setPanelHolder(holder);
 
-        mNotificationPanel = (PanelView) mStatusBarWindow.findViewById(R.id.notification_panel);
+        mNotificationPanel = (NotificationPanelView) mStatusBarWindow.findViewById(R.id.notification_panel);
+        mNotificationPanel.setStatusBar(this);
         mNotificationPanelIsFullScreenWidth =
             (mNotificationPanel.getLayoutParams().width == ViewGroup.LayoutParams.MATCH_PARENT);
-        mNotificationPanel.setSystemUiVisibility(
-                  View.STATUS_BAR_DISABLE_NOTIFICATION_TICKER
-                | (mNotificationPanelIsFullScreenWidth ? 0 : View.STATUS_BAR_DISABLE_SYSTEM_INFO));
+
+        // make the header non-responsive to clicks
+        mNotificationPanel.findViewById(R.id.header).setOnTouchListener(
+                new View.OnTouchListener() {
+                    @Override
+                    public boolean onTouch(View v, MotionEvent event) {
+                        return true; // e eats everything
+                    }
+                });
 
         if (!ActivityManager.isHighEndGfx()) {
             mStatusBarWindow.setBackground(null);
             mNotificationPanel.setBackground(new FastColorDrawable(context.getResources().getColor(
-                    R.color.notification_panel_solid_background)));
-            mSettingsPanel.setBackground(new FastColorDrawable(context.getResources().getColor(
                     R.color.notification_panel_solid_background)));
         }
         if (ENABLE_INTRUDERS) {
@@ -349,10 +411,12 @@ public class PhoneStatusBar extends BaseStatusBar {
 
         // figure out which pixel-format to use for the status bar.
         mPixelFormat = PixelFormat.OPAQUE;
+
+        mSystemIconArea = (LinearLayout) mStatusBarView.findViewById(R.id.system_icon_area);
         mStatusIcons = (LinearLayout)mStatusBarView.findViewById(R.id.statusIcons);
         mNotificationIcons = (IconMerger)mStatusBarView.findViewById(R.id.notificationIcons);
         mNotificationIcons.setOverflowIndicator(mMoreIcon);
-        mIcons = (LinearLayout)mStatusBarView.findViewById(R.id.icons);
+        mStatusBarContents = (LinearLayout)mStatusBarView.findViewById(R.id.status_bar_contents);
         mTickerView = mStatusBarView.findViewById(R.id.ticker);
 
         mPile = (NotificationRowLayout)mStatusBarWindow.findViewById(R.id.latestItems);
@@ -360,18 +424,61 @@ public class PhoneStatusBar extends BaseStatusBar {
         mPile.setLongPressListener(getNotificationLongClicker());
         mExpandedContents = mPile; // was: expanded.findViewById(R.id.notificationLinearLayout);
 
+        mNotificationPanelHeader = mStatusBarWindow.findViewById(R.id.header);
+
         mClearButton = mStatusBarWindow.findViewById(R.id.clear_all_button);
         mClearButton.setOnClickListener(mClearButtonListener);
         mClearButton.setAlpha(0f);
         mClearButton.setVisibility(View.INVISIBLE);
         mClearButton.setEnabled(false);
         mDateView = (DateView)mStatusBarWindow.findViewById(R.id.date);
-        mSettingsButton = mStatusBarWindow.findViewById(R.id.settings_button);
-        mSettingsButton.setOnClickListener(mSettingsButtonListener);
-        mRotationButton = (RotationToggle) mStatusBarWindow.findViewById(R.id.rotation_lock_button);
-        
+
+        mHasSettingsPanel = res.getBoolean(R.bool.config_hasSettingsPanel);
+        mHasFlipSettings = res.getBoolean(R.bool.config_hasFlipSettingsPanel);
+
+        mDateTimeView = mNotificationPanelHeader.findViewById(R.id.datetime);
+        if (mHasFlipSettings) {
+            mDateTimeView.setOnClickListener(mClockClickListener);
+            mDateTimeView.setEnabled(true);
+        }
+
+        mSettingsButton = (ImageView) mStatusBarWindow.findViewById(R.id.settings_button);
+        if (mSettingsButton != null) {
+            mSettingsButton.setOnClickListener(mSettingsButtonListener);
+            if (mHasSettingsPanel) {
+                if (mStatusBarView.hasFullWidthNotifications()) {
+                    // the settings panel is hiding behind this button
+                    mSettingsButton.setImageResource(R.drawable.ic_notify_quicksettings);
+                    mSettingsButton.setVisibility(View.VISIBLE);
+                } else {
+                    // there is a settings panel, but it's on the other side of the (large) screen
+                    final View buttonHolder = mStatusBarWindow.findViewById(
+                            R.id.settings_button_holder);
+                    if (buttonHolder != null) {
+                        buttonHolder.setVisibility(View.GONE);
+                    }
+                }
+            } else {
+                // no settings panel, go straight to settings
+                mSettingsButton.setVisibility(View.VISIBLE);
+                mSettingsButton.setImageResource(R.drawable.ic_notify_settings);
+            }
+        }
+        if (mHasFlipSettings) {
+            mNotificationButton = (ImageView) mStatusBarWindow.findViewById(R.id.notification_button);
+            if (mNotificationButton != null) {
+                mNotificationButton.setOnClickListener(mNotificationButtonListener);
+            }
+        }
+
         mScrollView = (ScrollView)mStatusBarWindow.findViewById(R.id.scroll);
         mScrollView.setVerticalScrollBarEnabled(false); // less drawing during pulldowns
+        if (!mNotificationPanelIsFullScreenWidth) {
+            mScrollView.setSystemUiVisibility(
+                    View.STATUS_BAR_DISABLE_NOTIFICATION_TICKER |
+                    View.STATUS_BAR_DISABLE_NOTIFICATION_ICONS |
+                    View.STATUS_BAR_DISABLE_CLOCK);
+        }
 
         mTicker = new MyTicker(context, mStatusBarView);
 
@@ -399,6 +506,8 @@ public class PhoneStatusBar extends BaseStatusBar {
         mEmergencyCallLabel = (TextView)mStatusBarWindow.findViewById(R.id.emergency_calls_only);
         if (mEmergencyCallLabel != null) {
             mNetworkController.addEmergencyLabelView(mEmergencyCallLabel);
+            mEmergencyCallLabel.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { }});
             mEmergencyCallLabel.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
                 @Override
                 public void onLayoutChange(View v, int left, int top, int right, int bottom,
@@ -409,7 +518,7 @@ public class PhoneStatusBar extends BaseStatusBar {
 
         mCarrierLabel = (TextView)mStatusBarWindow.findViewById(R.id.carrier_label);
         mShowCarrierInPanel = (mCarrierLabel != null);
-        Slog.v(TAG, "carrierlabel=" + mCarrierLabel + " show=" + mShowCarrierInPanel);
+        if (DEBUG) Slog.v(TAG, "carrierlabel=" + mCarrierLabel + " show=" + mShowCarrierInPanel);
         if (mShowCarrierInPanel) {
             mCarrierLabel.setVisibility(mCarrierLabelVisible ? View.VISIBLE : View.INVISIBLE);
 
@@ -430,11 +539,63 @@ public class PhoneStatusBar extends BaseStatusBar {
             });
         }
 
-        // Quick Settings (WIP)
-        mSettingsPanel = (PanelView) mStatusBarWindow.findViewById(R.id.settings_panel);
-        mSettingsPanel.setBar(mStatusBarView);
-        mSettingsPanel.setup(mNetworkController, mBluetoothController, mBatteryController,
-                mLocationController);
+        // Quick Settings (where available, some restrictions apply)
+        if (mHasSettingsPanel) {
+            // first, figure out where quick settings should be inflated
+            final View settings_stub;
+            if (mHasFlipSettings) {
+                // a version of quick settings that flips around behind the notifications
+                settings_stub = mStatusBarWindow.findViewById(R.id.flip_settings_stub);
+                if (settings_stub != null) {
+                    mFlipSettingsView = ((ViewStub)settings_stub).inflate();
+                    mFlipSettingsView.setVisibility(View.GONE);
+                    mFlipSettingsView.setVerticalScrollBarEnabled(false);
+                }
+            } else {
+                // full quick settings panel
+                settings_stub = mStatusBarWindow.findViewById(R.id.quick_settings_stub);
+                if (settings_stub != null) {
+                    mSettingsPanel = (SettingsPanelView) ((ViewStub)settings_stub).inflate();
+                } else {
+                    mSettingsPanel = (SettingsPanelView) mStatusBarWindow.findViewById(R.id.settings_panel);
+                }
+
+                if (mSettingsPanel != null) {
+                    if (!ActivityManager.isHighEndGfx()) {
+                        mSettingsPanel.setBackground(new FastColorDrawable(context.getResources().getColor(
+                                R.color.notification_panel_solid_background)));
+                    }
+                }
+            }
+
+            // wherever you find it, Quick Settings needs a container to survive
+            mSettingsContainer = (QuickSettingsContainerView)
+                    mStatusBarWindow.findViewById(R.id.quick_settings_container);
+            if (mSettingsContainer != null) {
+                mQS = new QuickSettings(mContext, mSettingsContainer);
+                if (!mNotificationPanelIsFullScreenWidth) {
+                    mSettingsContainer.setSystemUiVisibility(
+                            View.STATUS_BAR_DISABLE_NOTIFICATION_TICKER
+                            | View.STATUS_BAR_DISABLE_SYSTEM_INFO);
+                }
+                if (mSettingsPanel != null) {
+                    mSettingsPanel.setQuickSettings(mQS);
+                }
+                mQS.setService(this);
+                mQS.setBar(mStatusBarView);
+                mQS.setup(mNetworkController, mBluetoothController, mBatteryController,
+                        mLocationController);
+            } else {
+                mQS = null; // fly away, be free
+            }
+        }
+
+        mClingShown = ! (DEBUG_CLINGS 
+            || !Prefs.read(mContext).getBoolean(Prefs.SHOWN_QUICK_SETTINGS_HELP, false));
+
+        if (!ENABLE_NOTIFICATION_PANEL_CLING || ActivityManager.isRunningInTestHarness()) {
+            mClingShown = true;
+        }
 
 //        final ImageView wimaxRSSI =
 //                (ImageView)sb.findViewById(R.id.wimax_signal);
@@ -449,6 +610,9 @@ public class PhoneStatusBar extends BaseStatusBar {
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         context.registerReceiver(mBroadcastReceiver, filter);
+
+        // listen for USER_SETUP_COMPLETE setting (per-user)
+        resetUserSetupObserver();
 
         return mStatusBarView;
     }
@@ -516,6 +680,11 @@ public class PhoneStatusBar extends BaseStatusBar {
     @Override
     public void showSearchPanel() {
         super.showSearchPanel();
+        mHandler.removeCallbacks(mShowSearchPanel);
+
+        // we want to freeze the sysui state wherever it is
+        mSearchPanelView.setSystemUiVisibility(mSystemUiVisibility);
+
         WindowManager.LayoutParams lp =
             (android.view.WindowManager.LayoutParams) mNavigationBarView.getLayoutParams();
         lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
@@ -562,7 +731,7 @@ public class PhoneStatusBar extends BaseStatusBar {
         public boolean onTouch(View v, MotionEvent event) {
             switch(event.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                if (!shouldDisableNavbarGestures() && !inKeyguardRestrictedInputMode()) {
+                if (!shouldDisableNavbarGestures()) {
                     mHandler.removeCallbacks(mShowSearchPanel);
                     mHandler.postDelayed(mShowSearchPanel, mShowSearchHoldoff);
                 }
@@ -592,8 +761,9 @@ public class PhoneStatusBar extends BaseStatusBar {
         mNavigationBarView.reorient();
 
         mNavigationBarView.getRecentsButton().setOnClickListener(mRecentsClickListener);
-        mNavigationBarView.getRecentsButton().setOnTouchListener(getRecentTasksLoader());
+        mNavigationBarView.getRecentsButton().setOnTouchListener(mRecentsPreloadOnTouchListener);
         mNavigationBarView.getHomeButton().setOnTouchListener(mHomeSearchActionListener);
+        mNavigationBarView.getSearchLight().setOnTouchListener(mHomeSearchActionListener);
         updateSearchPanel();
     }
 
@@ -613,6 +783,11 @@ public class PhoneStatusBar extends BaseStatusBar {
         prepareNavigationBarView();
 
         mWindowManager.updateViewLayout(mNavigationBarView, getNavigationBarLayoutParams());
+    }
+
+    private void notifyNavigationBarScreenOn(boolean screenOn) {
+        if (mNavigationBarView == null) return;
+        mNavigationBarView.notifyScreenOn(screenOn);
     }
 
     private WindowManager.LayoutParams getNavigationBarLayoutParams() {
@@ -679,7 +854,7 @@ public class PhoneStatusBar extends BaseStatusBar {
     }
 
     public void addNotification(IBinder key, StatusBarNotification notification) {
-        /* if (DEBUG) */ Slog.d(TAG, "addNotification score=" + notification.score);
+        if (DEBUG) Slog.d(TAG, "addNotification score=" + notification.score);
         StatusBarIconView iconView = addNotificationViews(key, notification);
         if (iconView == null) return;
 
@@ -734,7 +909,7 @@ public class PhoneStatusBar extends BaseStatusBar {
             awakenDreams();
 
             // not immersive & a full-screen alert should be shown
-            Slog.d(TAG, "Notification has fullScreenIntent; sending fullScreenIntent");
+            if (DEBUG) Slog.d(TAG, "Notification has fullScreenIntent; sending fullScreenIntent");
             try {
                 notification.notification.fullScreenIntent.send();
             } catch (PendingIntent.CanceledException e) {
@@ -769,7 +944,7 @@ public class PhoneStatusBar extends BaseStatusBar {
             }
 
             if (CLOSE_PANEL_WHEN_EMPTIED && mNotificationData.size() == 0 && !mAnimating) {
-                animateCollapse();
+                animateCollapsePanels();
             }
         }
 
@@ -816,7 +991,9 @@ public class PhoneStatusBar extends BaseStatusBar {
             }
         }
 
-        mSettingsButton.setEnabled(isDeviceProvisioned());
+        if (mSettingsButton != null) {
+            mSettingsButton.setEnabled(isDeviceProvisioned());
+        }
     }
 
     @Override
@@ -878,7 +1055,8 @@ public class PhoneStatusBar extends BaseStatusBar {
         final boolean emergencyCallsShownElsewhere = mEmergencyCallLabel != null;
         final boolean makeVisible =
             !(emergencyCallsShownElsewhere && mNetworkController.isEmergencyOnly())
-            && mPile.getHeight() < (mNotificationPanel.getHeight() - mCarrierLabelHeight - mNotificationHeaderHeight);
+            && mPile.getHeight() < (mNotificationPanel.getHeight() - mCarrierLabelHeight - mNotificationHeaderHeight)
+            && mScrollView.getVisibility() == View.VISIBLE;
         
         if (force || mCarrierLabelVisible != makeVisible) {
             mCarrierLabelVisible = makeVisible;
@@ -918,7 +1096,13 @@ public class PhoneStatusBar extends BaseStatusBar {
                     + " any=" + any + " clearable=" + clearable);
         }
 
-        if (mClearButton.isShown()) {
+        if (mHasFlipSettings 
+                && mFlipSettingsView != null 
+                && mFlipSettingsView.getVisibility() == View.VISIBLE
+                && mScrollView.getVisibility() != View.VISIBLE) {
+            // the flip settings panel is unequivocally showing; we should not be shown
+            mClearButton.setVisibility(View.INVISIBLE);
+        } else if (mClearButton.isShown()) {
             if (clearable != (mClearButton.getAlpha() == 1.0f)) {
                 ObjectAnimator clearAnimation = ObjectAnimator.ofFloat(
                         mClearButton, "alpha", clearable ? 1.0f : 0.0f).setDuration(250);
@@ -1009,26 +1193,24 @@ public class PhoneStatusBar extends BaseStatusBar {
         flagdbg.append(((diff  & StatusBarManager.DISABLE_RECENT) != 0) ? "* " : " ");
         flagdbg.append(((state & StatusBarManager.DISABLE_CLOCK) != 0) ? "CLOCK" : "clock");
         flagdbg.append(((diff  & StatusBarManager.DISABLE_CLOCK) != 0) ? "* " : " ");
+        flagdbg.append(((state & StatusBarManager.DISABLE_SEARCH) != 0) ? "SEARCH" : "search");
+        flagdbg.append(((diff  & StatusBarManager.DISABLE_SEARCH) != 0) ? "* " : " ");
         flagdbg.append(">");
         Slog.d(TAG, flagdbg.toString());
 
         if ((diff & StatusBarManager.DISABLE_SYSTEM_INFO) != 0) {
-            mIcons.animate().cancel();
+            mSystemIconArea.animate().cancel();
             if ((state & StatusBarManager.DISABLE_SYSTEM_INFO) != 0) {
-                if (mTicking) {
-                    mTicker.halt();
-                }
-                mIcons.animate()
+                mSystemIconArea.animate()
                     .alpha(0f)
                     .translationY(mNaturalBarHeight*0.5f)
-                    //.setStartDelay(100)
                     .setDuration(175)
                     .setInterpolator(new DecelerateInterpolator(1.5f))
                     .setListener(mMakeIconsInvisible)
                     .start();
             } else {
-                mIcons.setVisibility(View.VISIBLE);
-                mIcons.animate()
+                mSystemIconArea.setVisibility(View.VISIBLE);
+                mSystemIconArea.animate()
                     .alpha(1f)
                     .translationY(0)
                     .setStartDelay(0)
@@ -1044,13 +1226,14 @@ public class PhoneStatusBar extends BaseStatusBar {
         }
         if ((diff & StatusBarManager.DISABLE_EXPAND) != 0) {
             if ((state & StatusBarManager.DISABLE_EXPAND) != 0) {
-                animateCollapse();
+                animateCollapsePanels();
             }
         }
 
         if ((diff & (StatusBarManager.DISABLE_HOME
                         | StatusBarManager.DISABLE_RECENT
-                        | StatusBarManager.DISABLE_BACK)) != 0) {
+                        | StatusBarManager.DISABLE_BACK
+                        | StatusBarManager.DISABLE_SEARCH)) != 0) {
             // the nav bar will take care of these
             if (mNavigationBarView != null) mNavigationBarView.setDisabledFlags(state);
 
@@ -1064,18 +1247,29 @@ public class PhoneStatusBar extends BaseStatusBar {
         if ((diff & StatusBarManager.DISABLE_NOTIFICATION_ICONS) != 0) {
             if ((state & StatusBarManager.DISABLE_NOTIFICATION_ICONS) != 0) {
                 if (mTicking) {
-                    mTicker.halt();
-                } else {
-                    setNotificationIconVisibility(false, com.android.internal.R.anim.fade_out);
+                    haltTicker();
                 }
+
+                mNotificationIcons.animate()
+                    .alpha(0f)
+                    .translationY(mNaturalBarHeight*0.5f)
+                    .setDuration(175)
+                    .setInterpolator(new DecelerateInterpolator(1.5f))
+                    .setListener(mMakeIconsInvisible)
+                    .start();
             } else {
-                if (!mExpandedVisible) {
-                    setNotificationIconVisibility(true, com.android.internal.R.anim.fade_in);
-                }
+                mNotificationIcons.setVisibility(View.VISIBLE);
+                mNotificationIcons.animate()
+                    .alpha(1f)
+                    .translationY(0)
+                    .setStartDelay(0)
+                    .setInterpolator(new DecelerateInterpolator(1.5f))
+                    .setDuration(175)
+                    .start();
             }
         } else if ((diff & StatusBarManager.DISABLE_NOTIFICATION_TICKER) != 0) {
             if (mTicking && (state & StatusBarManager.DISABLE_NOTIFICATION_TICKER) != 0) {
-                mTicker.halt();
+                haltTicker();
             }
         }
     }
@@ -1093,10 +1287,13 @@ public class PhoneStatusBar extends BaseStatusBar {
             super.handleMessage(m);
             switch (m.what) {
                 case MSG_OPEN_NOTIFICATION_PANEL:
-                    animateExpand();
+                    animateExpandNotificationsPanel();
                     break;
-                case MSG_CLOSE_NOTIFICATION_PANEL:
-                    animateCollapse();
+                case MSG_OPEN_SETTINGS_PANEL:
+                    animateExpandSettingsPanel();
+                    break;
+                case MSG_CLOSE_PANELS:
+                    animateCollapsePanels();
                     break;
                 case MSG_SHOW_INTRUDER:
                     setIntruderAlertVisibility(true);
@@ -1107,6 +1304,10 @@ public class PhoneStatusBar extends BaseStatusBar {
                     break;
             }
         }
+    }
+
+    public Handler getHandler() {
+        return mHandler;
     }
 
     View.OnFocusChangeListener mFocusChangeListener = new View.OnFocusChangeListener() {
@@ -1149,13 +1350,13 @@ public class PhoneStatusBar extends BaseStatusBar {
         visibilityChanged(true);
     }
 
-    public void animateCollapse() {
-        animateCollapse(CommandQueue.FLAG_EXCLUDE_NONE);
+    public void animateCollapsePanels() {
+        animateCollapsePanels(CommandQueue.FLAG_EXCLUDE_NONE);
     }
 
-    public void animateCollapse(int flags) {
+    public void animateCollapsePanels(int flags) {
         if (SPEW) {
-            Slog.d(TAG, "animateCollapse(): "
+            Slog.d(TAG, "animateCollapse():"
                     + " mExpandedVisible=" + mExpandedVisible
                     + " mAnimating=" + mAnimating
                     + " mAnimatingReveal=" + mAnimatingReveal
@@ -1174,19 +1375,201 @@ public class PhoneStatusBar extends BaseStatusBar {
             mHandler.sendEmptyMessage(MSG_CLOSE_SEARCH_PANEL);
         }
 
+        mStatusBarWindow.cancelExpandHelper();
         mStatusBarView.collapseAllPanels(true);
     }
 
+    public ViewPropertyAnimator setVisibilityWhenDone(
+            final ViewPropertyAnimator a, final View v, final int vis) {
+        a.setListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                v.setVisibility(vis);
+                a.setListener(null); // oneshot
+            }
+        });
+        return a;
+    }
+
+    public Animator setVisibilityWhenDone(
+            final Animator a, final View v, final int vis) {
+        a.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                v.setVisibility(vis);
+            }
+        });
+        return a;
+    }
+
+    public Animator interpolator(TimeInterpolator ti, Animator a) {
+        a.setInterpolator(ti);
+        return a;
+    }
+
+    public Animator startDelay(int d, Animator a) {
+        a.setStartDelay(d);
+        return a;
+    }
+    
+    public Animator start(Animator a) {
+        a.start();
+        return a;
+    }
+
+    final TimeInterpolator mAccelerateInterpolator = new AccelerateInterpolator();
+    final TimeInterpolator mDecelerateInterpolator = new DecelerateInterpolator();
+    final int FLIP_DURATION_OUT = 125;
+    final int FLIP_DURATION_IN = 225;
+    final int FLIP_DURATION = (FLIP_DURATION_IN + FLIP_DURATION_OUT);
+
+    Animator mScrollViewAnim, mFlipSettingsViewAnim, mNotificationButtonAnim,
+        mSettingsButtonAnim, mClearButtonAnim;
+
     @Override
-    public void animateExpand() {
+    public void animateExpandNotificationsPanel() {
         if (SPEW) Slog.d(TAG, "animateExpand: mExpandedVisible=" + mExpandedVisible);
         if ((mDisabled & StatusBarManager.DISABLE_EXPAND) != 0) {
             return ;
         }
 
         mNotificationPanel.expand();
+        if (mHasFlipSettings && mScrollView.getVisibility() != View.VISIBLE) {
+            flipToNotifications();
+        }
 
         if (false) postStartTracing();
+    }
+
+    public void flipToNotifications() {
+        if (mFlipSettingsViewAnim != null) mFlipSettingsViewAnim.cancel();
+        if (mScrollViewAnim != null) mScrollViewAnim.cancel();
+        if (mSettingsButtonAnim != null) mSettingsButtonAnim.cancel();
+        if (mNotificationButtonAnim != null) mNotificationButtonAnim.cancel();
+        if (mClearButtonAnim != null) mClearButtonAnim.cancel();
+
+        mScrollView.setVisibility(View.VISIBLE);
+        mScrollViewAnim = start(
+            startDelay(FLIP_DURATION_OUT,
+                interpolator(mDecelerateInterpolator,
+                    ObjectAnimator.ofFloat(mScrollView, View.SCALE_X, 0f, 1f)
+                        .setDuration(FLIP_DURATION_IN)
+                    )));
+        mFlipSettingsViewAnim = start(
+            setVisibilityWhenDone(
+                interpolator(mAccelerateInterpolator,
+                        ObjectAnimator.ofFloat(mFlipSettingsView, View.SCALE_X, 1f, 0f)
+                        )
+                    .setDuration(FLIP_DURATION_OUT),
+                mFlipSettingsView, View.INVISIBLE));
+        mNotificationButtonAnim = start(
+            setVisibilityWhenDone(
+                ObjectAnimator.ofFloat(mNotificationButton, View.ALPHA, 0f)
+                    .setDuration(FLIP_DURATION),
+                mNotificationButton, View.INVISIBLE));
+        mSettingsButton.setVisibility(View.VISIBLE);
+        mSettingsButtonAnim = start(
+            ObjectAnimator.ofFloat(mSettingsButton, View.ALPHA, 1f)
+                .setDuration(FLIP_DURATION));
+        mClearButton.setVisibility(View.VISIBLE);
+        mClearButton.setAlpha(0f);
+        setAreThereNotifications(); // this will show/hide the button as necessary
+        mNotificationPanel.postDelayed(new Runnable() {
+            public void run() {
+                updateCarrierLabelVisibility(false);
+            }
+        }, FLIP_DURATION - 150);
+    }
+
+    @Override
+    public void animateExpandSettingsPanel() {
+        if (SPEW) Slog.d(TAG, "animateExpand: mExpandedVisible=" + mExpandedVisible);
+        if ((mDisabled & StatusBarManager.DISABLE_EXPAND) != 0) {
+            return;
+        }
+
+        if (mHasFlipSettings) {
+            mNotificationPanel.expand();
+            if (mFlipSettingsView.getVisibility() != View.VISIBLE) {
+                flipToSettings();
+            }
+        } else if (mSettingsPanel != null) {
+            mSettingsPanel.expand();
+        }
+
+        if (false) postStartTracing();
+    }
+
+    public void switchToSettings() {
+        mFlipSettingsView.setScaleX(1f);
+        mFlipSettingsView.setVisibility(View.VISIBLE);
+        mSettingsButton.setVisibility(View.GONE);
+        mScrollView.setVisibility(View.GONE);
+        mScrollView.setScaleX(0f);
+        mNotificationButton.setVisibility(View.VISIBLE);
+        mNotificationButton.setAlpha(1f);
+        mClearButton.setVisibility(View.GONE);
+    }
+
+    public void flipToSettings() {
+        if (mFlipSettingsViewAnim != null) mFlipSettingsViewAnim.cancel();
+        if (mScrollViewAnim != null) mScrollViewAnim.cancel();
+        if (mSettingsButtonAnim != null) mSettingsButtonAnim.cancel();
+        if (mNotificationButtonAnim != null) mNotificationButtonAnim.cancel();
+        if (mClearButtonAnim != null) mClearButtonAnim.cancel();
+
+        mFlipSettingsView.setVisibility(View.VISIBLE);
+        mFlipSettingsView.setScaleX(0f);
+        mFlipSettingsViewAnim = start(
+            startDelay(FLIP_DURATION_OUT,
+                interpolator(mDecelerateInterpolator,
+                    ObjectAnimator.ofFloat(mFlipSettingsView, View.SCALE_X, 0f, 1f)
+                        .setDuration(FLIP_DURATION_IN)
+                    )));
+        mScrollViewAnim = start(
+            setVisibilityWhenDone(
+                interpolator(mAccelerateInterpolator,
+                        ObjectAnimator.ofFloat(mScrollView, View.SCALE_X, 1f, 0f)
+                        )
+                    .setDuration(FLIP_DURATION_OUT), 
+                mScrollView, View.INVISIBLE));
+        mSettingsButtonAnim = start(
+            setVisibilityWhenDone(
+                ObjectAnimator.ofFloat(mSettingsButton, View.ALPHA, 0f)
+                    .setDuration(FLIP_DURATION),
+                    mScrollView, View.INVISIBLE));
+        mNotificationButton.setVisibility(View.VISIBLE);
+        mNotificationButtonAnim = start(
+            ObjectAnimator.ofFloat(mNotificationButton, View.ALPHA, 1f)
+                .setDuration(FLIP_DURATION));
+        mClearButtonAnim = start(
+            setVisibilityWhenDone(
+                ObjectAnimator.ofFloat(mClearButton, View.ALPHA, 0f)
+                .setDuration(FLIP_DURATION),
+                mClearButton, View.INVISIBLE));
+        mNotificationPanel.postDelayed(new Runnable() {
+            public void run() {
+                updateCarrierLabelVisibility(false);
+            }
+        }, FLIP_DURATION - 150);
+    }
+
+    public void flipPanels() {
+        if (mHasFlipSettings) {
+            if (mFlipSettingsView.getVisibility() != View.VISIBLE) {
+                flipToSettings();
+            } else {
+                flipToNotifications();
+            }
+        }
+    }
+
+    public void animateCollapseQuickSettings() {
+        mStatusBarView.collapseAllPanels(true);
+    }
+
+    void makeExpandedInvisibleSoon() {
+        mHandler.postDelayed(new Runnable() { public void run() { makeExpandedInvisible(); }}, 50);
     }
 
     void makeExpandedInvisible() {
@@ -1197,8 +1580,26 @@ public class PhoneStatusBar extends BaseStatusBar {
             return;
         }
 
-        // Ensure the panel is fully collapsed (just in case; bug 6765842)
+        // Ensure the panel is fully collapsed (just in case; bug 6765842, 7260868)
         mStatusBarView.collapseAllPanels(/*animate=*/ false);
+
+        if (mHasFlipSettings) {
+            // reset things to their proper state
+            if (mFlipSettingsViewAnim != null) mFlipSettingsViewAnim.cancel();
+            if (mScrollViewAnim != null) mScrollViewAnim.cancel();
+            if (mSettingsButtonAnim != null) mSettingsButtonAnim.cancel();
+            if (mNotificationButtonAnim != null) mNotificationButtonAnim.cancel();
+            if (mClearButtonAnim != null) mClearButtonAnim.cancel();
+
+            mScrollView.setScaleX(1f);
+            mScrollView.setVisibility(View.VISIBLE);
+            mSettingsButton.setAlpha(1f);
+            mSettingsButton.setVisibility(View.VISIBLE);
+            mNotificationPanel.setVisibility(View.GONE);
+            mFlipSettingsView.setVisibility(View.GONE);
+            mNotificationButton.setVisibility(View.GONE);
+            setAreThereNotifications(); // show the clear button
+        }
 
         mExpandedVisible = false;
         mPile.setLayoutTransitionsEnabled(false);
@@ -1273,7 +1674,64 @@ public class PhoneStatusBar extends BaseStatusBar {
         }
     }
 
-    boolean interceptTouchEvent(MotionEvent event) {
+    public boolean isClinging() {
+        return mCling != null && mCling.getVisibility() == View.VISIBLE;
+    }
+
+    public void hideCling() {
+        if (isClinging()) {
+            mCling.animate().alpha(0f).setDuration(250).start();
+            mCling.setVisibility(View.GONE);
+            mSuppressStatusBarDrags = false;
+        }
+    }
+
+    public void showCling() {
+        // lazily inflate this to accommodate orientation change
+        final ViewStub stub = (ViewStub) mStatusBarWindow.findViewById(R.id.status_bar_cling_stub);
+        if (stub == null) {
+            mClingShown = true;
+            return; // no clings on this device
+        }
+
+        mSuppressStatusBarDrags = true;
+
+        mHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                mCling = (ViewGroup) stub.inflate();
+
+                mCling.setOnTouchListener(new View.OnTouchListener() {
+                    @Override
+                    public boolean onTouch(View v, MotionEvent event) {
+                        return true; // e eats everything
+                    }});
+                mCling.findViewById(R.id.ok).setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        hideCling();
+                    }});
+
+                mCling.setAlpha(0f);
+                mCling.setVisibility(View.VISIBLE);
+                mCling.animate().alpha(1f);
+
+                mClingShown = true;
+                SharedPreferences.Editor editor = Prefs.edit(mContext);
+                editor.putBoolean(Prefs.SHOWN_QUICK_SETTINGS_HELP, true);
+                editor.apply();
+
+                makeExpandedVisible(true); // enforce visibility in case the shade is still animating closed
+                animateExpandNotificationsPanel();
+
+                mSuppressStatusBarDrags = false;
+            }
+        }, 500);
+
+        animateExpandNotificationsPanel();
+    }
+
+    public boolean interceptTouchEvent(MotionEvent event) {
         if (SPEW) {
             Slog.d(TAG, "Touch: rawY=" + event.getRawY() + " event=" + event + " mDisabled="
                 + mDisabled + " mTracking=" + mTracking);
@@ -1286,7 +1744,24 @@ public class PhoneStatusBar extends BaseStatusBar {
             }
         }
 
-        mGestureRec.add(event);
+        if (DEBUG_GESTURES) {
+            mGestureRec.add(event);
+        }
+
+        // Cling (first-run help) handling.
+        // The cling is supposed to show the first time you drag, or even tap, the status bar.
+        // It should show the notification panel, then fade in after half a second, giving you 
+        // an explanation of what just happened, as well as teach you how to access quick
+        // settings (another drag). The user can dismiss the cling by clicking OK or by 
+        // dragging quick settings into view.
+        final int act = event.getActionMasked();
+        if (mSuppressStatusBarDrags) {
+            return true;
+        } else if (act == MotionEvent.ACTION_UP && !mClingShown) {
+            showCling();
+        } else {
+            hideCling();
+        }
 
         return false;
     }
@@ -1318,9 +1793,9 @@ public class PhoneStatusBar extends BaseStatusBar {
             if (0 != (diff & View.SYSTEM_UI_FLAG_LOW_PROFILE)) {
                 final boolean lightsOut = (0 != (vis & View.SYSTEM_UI_FLAG_LOW_PROFILE));
                 if (lightsOut) {
-                    animateCollapse();
+                    animateCollapsePanels();
                     if (mTicking) {
-                        mTicker.halt();
+                        haltTicker();
                     }
                 }
 
@@ -1343,25 +1818,28 @@ public class PhoneStatusBar extends BaseStatusBar {
             final View battery = mStatusBarView.findViewById(R.id.battery);
             final View clock = mStatusBarView.findViewById(R.id.clock);
 
-            mLightsOutAnimation = new AnimatorSet();
-            mLightsOutAnimation.playTogether(
+            final AnimatorSet lightsOutAnim = new AnimatorSet();
+            lightsOutAnim.playTogether(
                     ObjectAnimator.ofFloat(notifications, View.ALPHA, 0),
                     ObjectAnimator.ofFloat(systemIcons, View.ALPHA, 0),
                     ObjectAnimator.ofFloat(signal, View.ALPHA, 0),
                     ObjectAnimator.ofFloat(battery, View.ALPHA, 0.5f),
                     ObjectAnimator.ofFloat(clock, View.ALPHA, 0.5f)
                 );
-            mLightsOutAnimation.setDuration(750);
+            lightsOutAnim.setDuration(750);
 
-            mLightsOnAnimation = new AnimatorSet();
-            mLightsOnAnimation.playTogether(
+            final AnimatorSet lightsOnAnim = new AnimatorSet();
+            lightsOnAnim.playTogether(
                     ObjectAnimator.ofFloat(notifications, View.ALPHA, 1),
                     ObjectAnimator.ofFloat(systemIcons, View.ALPHA, 1),
                     ObjectAnimator.ofFloat(signal, View.ALPHA, 1),
                     ObjectAnimator.ofFloat(battery, View.ALPHA, 1),
                     ObjectAnimator.ofFloat(clock, View.ALPHA, 1)
                 );
-            mLightsOnAnimation.setDuration(250);
+            lightsOnAnim.setDuration(250);
+
+            mLightsOutAnimation = lightsOutAnim;
+            mLightsOnAnimation = lightsOnAnim;
         }
 
         mLightsOutAnimation.cancel();
@@ -1413,10 +1891,11 @@ public class PhoneStatusBar extends BaseStatusBar {
         mCommandQueue.setNavigationIconHints(
                 altBack ? (mNavigationIconHints | StatusBarManager.NAVIGATION_HINT_BACK_ALT)
                         : (mNavigationIconHints & ~StatusBarManager.NAVIGATION_HINT_BACK_ALT));
+        if (mQS != null) mQS.setImeWindowStatus(vis > 0);
     }
 
     @Override
-    public void setHardKeyboardStatus(boolean available, boolean enabled) { }
+    public void setHardKeyboardStatus(boolean available, boolean enabled) {}
 
     @Override
     protected void tick(IBinder key, StatusBarNotification n, boolean firstTime) {
@@ -1425,6 +1904,9 @@ public class PhoneStatusBar extends BaseStatusBar {
 
         // no ticking in Setup
         if (!isDeviceProvisioned()) return;
+
+        // not for you
+        if (!notificationIsForCurrentUser(n)) return;
 
         // Show the ticker if one is requested. Also don't do this
         // until status bar window is attached to the window manager,
@@ -1446,27 +1928,26 @@ public class PhoneStatusBar extends BaseStatusBar {
         @Override
         public void tickerStarting() {
             mTicking = true;
-            mIcons.setVisibility(View.GONE);
+            mStatusBarContents.setVisibility(View.GONE);
             mTickerView.setVisibility(View.VISIBLE);
             mTickerView.startAnimation(loadAnim(com.android.internal.R.anim.push_up_in, null));
-            mIcons.startAnimation(loadAnim(com.android.internal.R.anim.push_up_out, null));
+            mStatusBarContents.startAnimation(loadAnim(com.android.internal.R.anim.push_up_out, null));
         }
 
         @Override
         public void tickerDone() {
-            mIcons.setVisibility(View.VISIBLE);
+            mStatusBarContents.setVisibility(View.VISIBLE);
             mTickerView.setVisibility(View.GONE);
-            mIcons.startAnimation(loadAnim(com.android.internal.R.anim.push_down_in, null));
+            mStatusBarContents.startAnimation(loadAnim(com.android.internal.R.anim.push_down_in, null));
             mTickerView.startAnimation(loadAnim(com.android.internal.R.anim.push_down_out,
                         mTickingDoneListener));
         }
 
         public void tickerHalting() {
-            mIcons.setVisibility(View.VISIBLE);
+            mStatusBarContents.setVisibility(View.VISIBLE);
             mTickerView.setVisibility(View.GONE);
-            mIcons.startAnimation(loadAnim(com.android.internal.R.anim.fade_in, null));
-            mTickerView.startAnimation(loadAnim(com.android.internal.R.anim.fade_out,
-                        mTickingDoneListener));
+            mStatusBarContents.startAnimation(loadAnim(com.android.internal.R.anim.fade_in, null));
+            // we do not animate the ticker away at this point, just get rid of it (b/6992707)
         }
     }
 
@@ -1560,8 +2041,10 @@ public class PhoneStatusBar extends BaseStatusBar {
             }
         }
 
-        pw.print("  status bar gestures: ");
-        mGestureRec.dump(fd, pw, args);
+        if (DEBUG_GESTURES) {
+            pw.print("  status bar gestures: ");
+            mGestureRec.dump(fd, pw, args);
+        }
 
         mNetworkController.dump(fd, pw, args);
     }
@@ -1621,16 +2104,23 @@ public class PhoneStatusBar extends BaseStatusBar {
 
     @Override
     public void updateExpandedViewPos(int thingy) {
-        // TODO
         if (DEBUG) Slog.v(TAG, "updateExpandedViewPos");
+
+        // on larger devices, the notification panel is propped open a bit
+        mNotificationPanel.setMinimumHeight(
+                (int)(mNotificationPanelMinHeightFrac * mCurrentDisplaySize.y));
+
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mNotificationPanel.getLayoutParams();
         lp.gravity = mNotificationPanelGravity;
         lp.leftMargin = mNotificationPanelMarginPx;
         mNotificationPanel.setLayoutParams(lp);
-        lp = (FrameLayout.LayoutParams) mSettingsPanel.getLayoutParams();
-        lp.gravity = mSettingsPanelGravity;
-        lp.rightMargin = mNotificationPanelMarginPx;
-        mSettingsPanel.setLayoutParams(lp);
+
+        if (mSettingsPanel != null) {
+            lp = (FrameLayout.LayoutParams) mSettingsPanel.getLayoutParams();
+            lp.gravity = mSettingsPanelGravity;
+            lp.rightMargin = mNotificationPanelMarginPx;
+            mSettingsPanel.setLayoutParams(lp);
+        }
 
         updateCarrierLabelVisibility(false);
     }
@@ -1638,41 +2128,9 @@ public class PhoneStatusBar extends BaseStatusBar {
     // called by makeStatusbar and also by PhoneStatusBarView
     void updateDisplaySize() {
         mDisplay.getMetrics(mDisplayMetrics);
-        mGestureRec.tag("display", 
-                String.format("%dx%d", mDisplayMetrics.widthPixels, mDisplayMetrics.heightPixels));
-    }
-
-    void performDisableActions(int net) {
-        int old = mDisabled;
-        int diff = net ^ old;
-        mDisabled = net;
-
-        // act accordingly
-        if ((diff & StatusBarManager.DISABLE_EXPAND) != 0) {
-            if ((net & StatusBarManager.DISABLE_EXPAND) != 0) {
-                Slog.d(TAG, "DISABLE_EXPAND: yes");
-                animateCollapse();
-            }
-        }
-        if ((diff & StatusBarManager.DISABLE_NOTIFICATION_ICONS) != 0) {
-            if ((net & StatusBarManager.DISABLE_NOTIFICATION_ICONS) != 0) {
-                Slog.d(TAG, "DISABLE_NOTIFICATION_ICONS: yes");
-                if (mTicking) {
-                    mNotificationIcons.setVisibility(View.INVISIBLE);
-                    mTicker.halt();
-                } else {
-                    setNotificationIconVisibility(false, com.android.internal.R.anim.fade_out);
-                }
-            } else {
-                Slog.d(TAG, "DISABLE_NOTIFICATION_ICONS: no");
-                if (!mExpandedVisible) {
-                    setNotificationIconVisibility(true, com.android.internal.R.anim.fade_in);
-                }
-            }
-        } else if ((diff & StatusBarManager.DISABLE_NOTIFICATION_TICKER) != 0) {
-            if (mTicking && (net & StatusBarManager.DISABLE_NOTIFICATION_TICKER) != 0) {
-                mTicker.halt();
-            }
+        if (DEBUG_GESTURES) {
+            mGestureRec.tag("display", 
+                    String.format("%dx%d", mDisplayMetrics.widthPixels, mDisplayMetrics.heightPixels));
         }
     }
 
@@ -1693,7 +2151,7 @@ public class PhoneStatusBar extends BaseStatusBar {
                     }
                 }
                 if (snapshot.isEmpty()) {
-                    animateCollapse(CommandQueue.FLAG_EXCLUDE_NONE);
+                    animateCollapsePanels(CommandQueue.FLAG_EXCLUDE_NONE);
                     return;
                 }
                 new Thread(new Runnable() {
@@ -1744,7 +2202,7 @@ public class PhoneStatusBar extends BaseStatusBar {
                         mHandler.postDelayed(new Runnable() {
                             @Override
                             public void run() {
-                                animateCollapse(CommandQueue.FLAG_EXCLUDE_NONE);
+                                animateCollapsePanels(CommandQueue.FLAG_EXCLUDE_NONE);
                             }
                         }, totalDelay + 225);
                     }
@@ -1753,26 +2211,45 @@ public class PhoneStatusBar extends BaseStatusBar {
         }
     };
 
+    public void startActivityDismissingKeyguard(Intent intent, boolean onlyProvisioned) {
+        if (onlyProvisioned && !isDeviceProvisioned()) return;
+        try {
+            // Dismiss the lock screen when Settings starts.
+            ActivityManagerNative.getDefault().dismissKeyguardOnNextActivity();
+        } catch (RemoteException e) {
+        }
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        mContext.startActivityAsUser(intent, new UserHandle(UserHandle.USER_CURRENT));
+        animateCollapsePanels();
+    }
+
     private View.OnClickListener mSettingsButtonListener = new View.OnClickListener() {
         public void onClick(View v) {
-            // We take this as a good indicator that Setup is running and we shouldn't
-            // allow you to go somewhere else
-            if (!isDeviceProvisioned()) return;
-            try {
-                // Dismiss the lock screen when Settings starts.
-                ActivityManagerNative.getDefault().dismissKeyguardOnNextActivity();
-            } catch (RemoteException e) {
+            if (mHasSettingsPanel) {
+                animateExpandSettingsPanel();
+            } else {
+                startActivityDismissingKeyguard(
+                        new Intent(android.provider.Settings.ACTION_SETTINGS), true);
             }
-            v.getContext().startActivityAsUser(new Intent(Settings.ACTION_SETTINGS)
-                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    new UserHandle(UserHandle.USER_CURRENT));
-            animateCollapse();
+        }
+    };
+
+    private View.OnClickListener mClockClickListener = new View.OnClickListener() {
+        public void onClick(View v) {
+            startActivityDismissingKeyguard(
+                    new Intent(Intent.ACTION_QUICK_CLOCK), true); // have fun, everyone
+        }
+    };
+
+    private View.OnClickListener mNotificationButtonListener = new View.OnClickListener() {
+        public void onClick(View v) {
+            animateExpandNotificationsPanel();
         }
     };
 
     private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
-            Slog.v(TAG, "onReceive: " + intent);
+            if (DEBUG) Slog.v(TAG, "onReceive: " + intent);
             String action = intent.getAction();
             if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(action)) {
                 int flags = CommandQueue.FLAG_EXCLUDE_NONE;
@@ -1782,16 +2259,19 @@ public class PhoneStatusBar extends BaseStatusBar {
                         flags |= CommandQueue.FLAG_EXCLUDE_RECENTS_PANEL;
                     }
                 }
-                animateCollapse(flags);
+                animateCollapsePanels(flags);
             }
             else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                 // no waiting!
                 makeExpandedInvisible();
+                notifyNavigationBarScreenOn(false);
             }
             else if (Intent.ACTION_CONFIGURATION_CHANGED.equals(action)) {
                 if (DEBUG) {
                     Slog.v(TAG, "configuration changed: " + mContext.getResources().getConfiguration());
                 }
+                mDisplay.getSize(mCurrentDisplaySize);
+
                 updateResources();
                 repositionNavigationBar();
                 updateExpandedViewPos(EXPANDED_LEAVE_ALONE);
@@ -1800,6 +2280,7 @@ public class PhoneStatusBar extends BaseStatusBar {
             else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 // work around problem where mDisplay.getRotation() is not stable while screen is off (bug 7086018)
                 repositionNavigationBar();
+                notifyNavigationBarScreenOn(true);
             }
         }
     };
@@ -1807,10 +2288,20 @@ public class PhoneStatusBar extends BaseStatusBar {
     @Override
     public void userSwitched(int newUserId) {
         if (MULTIUSER_DEBUG) mNotificationPanelDebugText.setText("USER " + newUserId);
-        animateCollapse();
+        animateCollapsePanels();
         updateNotificationIcons();
+        resetUserSetupObserver();
     }
-    
+
+    private void resetUserSetupObserver() {
+        mContext.getContentResolver().unregisterContentObserver(mUserSetupObserver);
+        mUserSetupObserver.onChange(false);
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE), true,
+                mUserSetupObserver,
+                mCurrentUserId);
+    }
+
     private void setIntruderAlertVisibility(boolean vis) {
         if (!ENABLE_INTRUDERS) return;
         if (DEBUG) {
@@ -1848,7 +2339,7 @@ public class PhoneStatusBar extends BaseStatusBar {
         }
 
         // Update the QuickSettings container
-        ((SettingsPanelView) mSettingsPanel).updateResources();
+        if (mQS != null) mQS.updateResources();
 
         loadDimens();
     }
@@ -1900,27 +2391,16 @@ public class PhoneStatusBar extends BaseStatusBar {
         if (mSettingsPanelGravity <= 0) {
             mSettingsPanelGravity = Gravity.RIGHT | Gravity.TOP;
         }
-        getNinePatchPadding(res.getDrawable(R.drawable.notification_panel_bg), mNotificationPanelBackgroundPadding);
-        final int notificationPanelDecorationHeight =
-              res.getDimensionPixelSize(R.dimen.notification_panel_padding_top)
-            + res.getDimensionPixelSize(R.dimen.notification_panel_header_height)
-            + mNotificationPanelBackgroundPadding.top
-            + mNotificationPanelBackgroundPadding.bottom;
-        mNotificationPanelMinHeight = 
-              notificationPanelDecorationHeight 
-            + res.getDimensionPixelSize(R.dimen.close_handle_underlap);
 
         mCarrierLabelHeight = res.getDimensionPixelSize(R.dimen.carrier_label_height);
         mNotificationHeaderHeight = res.getDimensionPixelSize(R.dimen.notification_panel_header_height);
 
-        if (false) Slog.v(TAG, "updateResources");
-    }
-
-    private static void getNinePatchPadding(Drawable d, Rect outPadding) {
-        if (d instanceof NinePatchDrawable) {
-            NinePatchDrawable ninePatch = (NinePatchDrawable) d;
-            ninePatch.getPadding(outPadding);
+        mNotificationPanelMinHeightFrac = res.getFraction(R.dimen.notification_panel_min_height_frac, 1, 1);
+        if (mNotificationPanelMinHeightFrac < 0f || mNotificationPanelMinHeightFrac > 1f) {
+            mNotificationPanelMinHeightFrac = 0f;
         }
+
+        if (false) Slog.v(TAG, "updateResources");
     }
 
     //
@@ -1962,7 +2442,9 @@ public class PhoneStatusBar extends BaseStatusBar {
 
     @Override
     protected boolean shouldDisableNavbarGestures() {
-        return mExpandedVisible || (mDisabled & StatusBarManager.DISABLE_HOME) != 0;
+        return !isDeviceProvisioned()
+                || mExpandedVisible
+                || (mDisabled & StatusBarManager.DISABLE_SEARCH) != 0;
     }
 
     private static class FastColorDrawable extends Drawable {

@@ -52,6 +52,7 @@ class SelectActionModeCallback implements ActionMode.Callback {
     @Override
     public boolean onCreateActionMode(ActionMode mode, Menu menu) {
         mode.getMenuInflater().inflate(com.android.internal.R.menu.webview_copy, menu);
+
         final Context context = mWebView.getContext();
         mode.setTitle(context.getString(com.android.internal.R.string.textSelectionCABTitle));
         mode.setTitleOptionalHint(true);
@@ -127,6 +128,7 @@ class SelectActionModeCallback implements ActionMode.Callback {
                 }
                 mWebView.getContext().startActivity(i);
                 break;
+
             default:
                 return false;
         }

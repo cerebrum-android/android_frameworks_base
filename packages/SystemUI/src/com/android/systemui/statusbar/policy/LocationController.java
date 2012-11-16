@@ -97,7 +97,6 @@ public class LocationController extends BroadcastReceiver {
         }
         
         try {
-            // XXX WHAT TO DO ABOUT MULTI-USER?
             if (visible) {
                 Intent gpsIntent = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
                 gpsIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -126,11 +125,15 @@ public class LocationController extends BroadcastReceiver {
                         GPS_NOTIFICATION_ID, 
                         n,
                         idOut,
-                        UserHandle.USER_CURRENT);
+                        UserHandle.USER_ALL);
+
+                for (LocationGpsStateChangeCallback cb : mChangeCallbacks) {
+                    cb.onLocationGpsStateChanged(true, text);
+                }
             } else {
                 mNotificationService.cancelNotificationWithTag(
                         mContext.getPackageName(), null,
-                        GPS_NOTIFICATION_ID, UserHandle.USER_CURRENT);
+                        GPS_NOTIFICATION_ID, UserHandle.USER_ALL);
 
                 for (LocationGpsStateChangeCallback cb : mChangeCallbacks) {
                     cb.onLocationGpsStateChanged(false, null);

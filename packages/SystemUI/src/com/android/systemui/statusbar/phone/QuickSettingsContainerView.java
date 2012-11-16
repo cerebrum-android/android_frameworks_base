@@ -20,6 +20,7 @@ import android.animation.LayoutTransition;
 import android.content.Context;
 import android.content.res.Resources;
 import android.util.AttributeSet;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -64,7 +65,7 @@ class QuickSettingsContainerView extends FrameLayout {
         int height = MeasureSpec.getSize(heightMeasureSpec);
         int availableWidth = (int) (width - getPaddingLeft() - getPaddingRight() -
                 (mNumColumns - 1) * mCellGap);
-        float cellWidth = availableWidth / mNumColumns;
+        float cellWidth = (float) Math.ceil(((float) availableWidth) / mNumColumns);
 
         // Update each of the children's widths accordingly to the cell width
         int N = getChildCount();
@@ -73,22 +74,22 @@ class QuickSettingsContainerView extends FrameLayout {
         for (int i = 0; i < N; ++i) {
             // Update the child's width
             QuickSettingsTileView v = (QuickSettingsTileView) getChildAt(i);
-            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            int colSpan = v.getColumnSpan();
-            lp.width = (int) ((colSpan * cellWidth) + (colSpan - 1) * mCellGap);
+            if (v.getVisibility() != View.GONE) {
+                ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+                int colSpan = v.getColumnSpan();
+                lp.width = (int) ((colSpan * cellWidth) + (colSpan - 1) * mCellGap);
 
-            // Measure the child
-            v.setMinimumWidth(lp.width);
-            v.setMinimumHeight(lp.height);
-            int newWidthSpec = MeasureSpec.makeMeasureSpec(lp.width, MeasureSpec.AT_MOST);
-            int newHeightSpec = MeasureSpec.makeMeasureSpec(lp.height, MeasureSpec.AT_MOST);
-            v.measure(newWidthSpec, newHeightSpec);
+                // Measure the child
+                int newWidthSpec = MeasureSpec.makeMeasureSpec(lp.width, MeasureSpec.EXACTLY);
+                int newHeightSpec = MeasureSpec.makeMeasureSpec(lp.height, MeasureSpec.EXACTLY);
+                v.measure(newWidthSpec, newHeightSpec);
 
-            // Save the cell height
-            if (cellHeight <= 0) {
-                cellHeight = v.getMeasuredHeight();
+                // Save the cell height
+                if (cellHeight <= 0) {
+                    cellHeight = v.getMeasuredHeight();
+                }
+                cursor += colSpan;
             }
-            cursor += colSpan;
         }
 
         // Set the measured dimensions.  We always fill the tray width, but wrap to the height of

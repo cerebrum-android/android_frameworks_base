@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-package android.security.tests;
+package android.security;
 
 import android.app.Activity;
 import android.security.KeyStore;
 import android.test.ActivityUnitTestCase;
+import android.test.AssertionFailedError;
 import android.test.suitebuilder.annotation.MediumTest;
 import java.nio.charset.Charsets;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashSet;
 
 /**
@@ -29,15 +31,19 @@ import java.util.HashSet;
  *
  * Running the test suite:
  *
- *  adb shell am instrument -w android.security.tests/.KeyStoreTestRunner
+ *  runtest keystore-unit
+ *
+ * Or this individual test case:
+ *
+ *  runtest --path frameworks/base/keystore/tests/src/android/security/KeyStoreTest.java
  */
 @MediumTest
 public class KeyStoreTest extends ActivityUnitTestCase<Activity> {
     private static final String TEST_PASSWD = "12345678";
     private static final String TEST_PASSWD2 = "87654321";
-    private static final String TEST_KEYNAME = "testkey";
-    private static final String TEST_KEYNAME1 = "testkey1";
-    private static final String TEST_KEYNAME2 = "testkey2";
+    private static final String TEST_KEYNAME = "test-key";
+    private static final String TEST_KEYNAME1 = "test-key.1";
+    private static final String TEST_KEYNAME2 = "test-key\02";
     private static final byte[] TEST_KEYVALUE = "test value".getBytes(Charsets.UTF_8);
 
     // "Hello, World" in Chinese
@@ -45,10 +51,12 @@ public class KeyStoreTest extends ActivityUnitTestCase<Activity> {
     private static final byte[] TEST_I18N_VALUE = TEST_I18N_KEY.getBytes(Charsets.UTF_8);
 
     // Test vector data for signatures
-    private static final byte[] TEST_DATA = {
-            (byte) 0x00, (byte) 0xA0, (byte) 0xFF, (byte) 0x0A, (byte) 0x00, (byte) 0xFF,
-            (byte) 0xAA, (byte) 0x55, (byte) 0x05, (byte) 0x5A,
-    };
+    private static final byte[] TEST_DATA =  new byte[256];
+    static {
+        for (int i = 0; i < TEST_DATA.length; i++) {
+            TEST_DATA[i] = (byte) i;
+        }
+    }
 
     private KeyStore mKeyStore = null;
 
@@ -155,9 +163,9 @@ public class KeyStoreTest extends ActivityUnitTestCase<Activity> {
     }
 
     public void testDelete() throws Exception {
-        assertTrue(mKeyStore.delete(TEST_KEYNAME));
+        assertFalse(mKeyStore.delete(TEST_KEYNAME));
         mKeyStore.password(TEST_PASSWD);
-        assertTrue(mKeyStore.delete(TEST_KEYNAME));
+        assertFalse(mKeyStore.delete(TEST_KEYNAME));
 
         mKeyStore.put(TEST_KEYNAME, TEST_KEYVALUE);
         assertTrue(Arrays.equals(TEST_KEYVALUE, mKeyStore.get(TEST_KEYNAME)));
@@ -396,5 +404,53 @@ public class KeyStoreTest extends ActivityUnitTestCase<Activity> {
 
         assertFalse("Should fail to ungrant key to other user second time",
                 mKeyStore.ungrant(TEST_KEYNAME, 0));
+    }
+
+    /**
+     * The amount of time to allow before and after expected time for variance
+     * in timing tests.
+     */
+    private static final long SLOP_TIME_MILLIS = 15000L;
+
+    public void testGetmtime_Success() throws Exception {
+        assertTrue("Password should work for keystore",
+                mKeyStore.password(TEST_PASSWD));
+
+        assertTrue("Should be able to import key when unlocked",
+                mKeyStore.importKey(TEST_KEYNAME, PRIVKEY_BYTES));
+
+        long now = System.currentTimeMillis();
+        long actual = mKeyStore.getmtime(TEST_KEYNAME);
+
+        long expectedAfter = now - SLOP_TIME_MILLIS;
+        long expectedBefore = now + SLOP_TIME_MILLIS;
+
+        assertLessThan("Time should be close to current time", expectedBefore, actual);
+        assertGreaterThan("Time should be close to current time", expectedAfter, actual);
+    }
+
+    private static void assertLessThan(String explanation, long expectedBefore, long actual) {
+        if (actual >= expectedBefore) {
+            throw new AssertionFailedError(explanation + ": actual=" + actual
+                    + ", expected before: " + expectedBefore);
+        }
+    }
+
+    private static void assertGreaterThan(String explanation, long expectedAfter, long actual) {
+        if (actual <= expectedAfter) {
+            throw new AssertionFailedError(explanation + ": actual=" + actual
+                    + ", expected after: " + expectedAfter);
+        }
+    }
+
+    public void testGetmtime_NonExist_Failure() throws Exception {
+        assertTrue("Password should work for keystore",
+                mKeyStore.password(TEST_PASSWD));
+
+        assertTrue("Should be able to import key when unlocked",
+                mKeyStore.importKey(TEST_KEYNAME, PRIVKEY_BYTES));
+
+        assertEquals("-1 should be returned for non-existent key",
+                -1L, mKeyStore.getmtime(TEST_KEYNAME2));
     }
 }

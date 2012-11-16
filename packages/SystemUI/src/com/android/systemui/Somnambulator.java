@@ -1,4 +1,4 @@
-/*);
+/*
  * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,19 +18,23 @@ package com.android.systemui;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.os.RemoteException;
-import android.os.ServiceManager;
-import android.service.dreams.IDreamManager;
-import android.util.Slog;
+import android.service.dreams.Sandman;
 
+/**
+ * A simple activity that launches a dream.
+ * <p>
+ * Note: This Activity is special.  If this class is moved to another package or
+ * renamed, be sure to update the component name in {@link Sandman}.
+ * </p>
+ */
 public class Somnambulator extends Activity {
-
     public Somnambulator() {
     }
-    
+
     @Override
     public void onStart() {
         super.onStart();
+
         final Intent launchIntent = getIntent();
         final String action = launchIntent.getAction();
         if (Intent.ACTION_CREATE_SHORTCUT.equals(action)) {
@@ -39,23 +43,18 @@ public class Somnambulator extends Activity {
                     | Intent.FLAG_ACTIVITY_NEW_TASK);
             Intent resultIntent = new Intent();
             resultIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE,
-                    Intent.ShortcutIconResource.fromContext(this, R.mipmap.ic_dreams));
+                    Intent.ShortcutIconResource.fromContext(this, R.mipmap.ic_launcher_dreams));
             resultIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent);
             resultIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, getString(R.string.start_dreams));
             setResult(RESULT_OK, resultIntent);
         } else {
-            IDreamManager somnambulist = IDreamManager.Stub.asInterface(
-                    ServiceManager.checkService("dreams"));
-            if (somnambulist != null) {
-                try {
-                    Slog.v("Somnambulator", "Dreaming by user request.");
-                    somnambulist.dream();
-                } catch (RemoteException e) {
-                    // fine, stay asleep then
-                }
+            boolean docked = launchIntent.hasCategory(Intent.CATEGORY_DESK_DOCK);
+            if (docked) {
+                Sandman.startDreamWhenDockedIfAppropriate(this);
+            } else {
+                Sandman.startDreamByUserRequest(this);
             }
         }
         finish();
     }
-
 }

@@ -225,7 +225,7 @@ public class AudioRecord
             mInitializationLooper = Looper.getMainLooper();
         }
 
-        //audioParamCheck(audioSource, sampleRateInHz, channelConfig, audioFormat);
+        audioParamCheck(audioSource, sampleRateInHz, channelConfig, audioFormat);
 
         audioBuffSizeCheck(bufferSizeInBytes);
 

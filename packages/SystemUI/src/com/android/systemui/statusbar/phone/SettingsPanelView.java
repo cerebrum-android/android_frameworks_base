@@ -20,6 +20,8 @@ import android.animation.LayoutTransition;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -27,6 +29,7 @@ import android.view.ViewGroup;
 
 import com.android.systemui.R;
 import com.android.systemui.statusbar.BaseStatusBar;
+import com.android.systemui.statusbar.GestureRecorder;
 import com.android.systemui.statusbar.policy.BatteryController;
 import com.android.systemui.statusbar.policy.BluetoothController;
 import com.android.systemui.statusbar.policy.LocationController;
@@ -37,6 +40,10 @@ public class SettingsPanelView extends PanelView {
     private QuickSettings mQS;
     private QuickSettingsContainerView mQSContainer;
 
+    Drawable mHandleBar;
+    float mHandleBarHeight;
+    View mHandleView;
+
     public SettingsPanelView(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -46,7 +53,17 @@ public class SettingsPanelView extends PanelView {
         super.onFinishInflate();
 
         mQSContainer = (QuickSettingsContainerView) findViewById(R.id.quick_settings_container);
-        mQS = new QuickSettings(getContext(), mQSContainer);
+
+        Resources resources = getContext().getResources();
+        mHandleBar = resources.getDrawable(R.drawable.status_bar_close);
+        mHandleBarHeight = resources.getDimension(R.dimen.close_handle_height);
+        mHandleView = findViewById(R.id.handle);
+
+        setContentDescription(resources.getString(R.string.accessibility_desc_quick_settings));
+    }
+    
+    public void setQuickSettings(QuickSettings qs) {
+        mQS = qs;
     }
 
     @Override
@@ -58,11 +75,14 @@ public class SettingsPanelView extends PanelView {
         }
     }
 
-    @Override
+    public void setImeWindowStatus(boolean visible) {
+        if (mQS != null) {
+            mQS.setImeWindowStatus(visible);
+        }
+    }
+
     public void setup(NetworkController networkController, BluetoothController bluetoothController,
             BatteryController batteryController, LocationController locationController) {
-        super.setup(networkController, bluetoothController, batteryController, locationController);
-
         if (mQS != null) {
             mQS.setup(networkController, bluetoothController, batteryController,
                     locationController);
@@ -81,9 +101,39 @@ public class SettingsPanelView extends PanelView {
 
     @Override
     public void fling(float vel, boolean always) {
-        ((PhoneStatusBarView) mBar).mBar.getGestureRecorder().tag(
-            "fling " + ((vel > 0) ? "open" : "closed"),
-            "settings,v=" + vel);
+        GestureRecorder gr = ((PhoneStatusBarView) mBar).mBar.getGestureRecorder();
+        if (gr != null) {
+            gr.tag(
+                "fling " + ((vel > 0) ? "open" : "closed"),
+                "settings,v=" + vel);
+        }
         super.fling(vel, always);
+    }
+
+    public void setService(PhoneStatusBar phoneStatusBar) {
+        if (mQS != null) {
+            mQS.setService(phoneStatusBar);
+        }
+    }
+
+    // We draw the handle ourselves so that it's always glued to the bottom of the window.
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        if (changed) {
+            final int pl = getPaddingLeft();
+            final int pr = getPaddingRight();
+            mHandleBar.setBounds(pl, 0, getWidth() - pr, (int) mHandleBarHeight);
+        }
+    }
+
+    @Override
+    public void draw(Canvas canvas) {
+        super.draw(canvas);
+        final int off = (int) (getHeight() - mHandleBarHeight - getPaddingBottom());
+        canvas.translate(0, off);
+        mHandleBar.setState(mHandleView.getDrawableState());
+        mHandleBar.draw(canvas);
+        canvas.translate(0, -off);
     }
 }
